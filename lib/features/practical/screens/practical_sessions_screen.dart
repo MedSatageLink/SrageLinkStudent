@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:gap/gap.dart';
+import 'package:intl/intl.dart';
 import '../../../core/theme/app_theme.dart';
 
 // Sessions for a subject
@@ -25,7 +26,7 @@ final practicalSessionsBySubjectProvider =
       final assignments = await Supabase.instance.client
           .from('lecture_assignments')
           .select(
-            'lecture_id, lectures(id, practical_session_id, date, time, location, attendance_window_start, attendance_window_end, profiles(full_name))',
+            'lecture_id, lectures(id, practical_session_id, start_at, end_at, location, attendance_window_start, attendance_window_end, profiles(full_name))',
           )
           .eq('student_id', uid);
 
@@ -63,6 +64,29 @@ final practicalSessionsBySubjectProvider =
 class PracticalSessionsScreen extends ConsumerWidget {
   final String subjectId;
   const PracticalSessionsScreen({super.key, required this.subjectId});
+
+  String _formatDuration(int mins) {
+    if (mins <= 0) return '';
+    final hours = mins ~/ 60;
+    final rem = mins % 60;
+    if (hours == 0) return '$mins د';
+    if (rem == 0) return '$hours س';
+    return '$hours س $rem د';
+  }
+
+  String _formatLectureLine(Map<String, dynamic> lecture) {
+    final start = DateTime.tryParse(lecture['start_at'] as String? ?? '');
+    final end = DateTime.tryParse(lecture['end_at'] as String? ?? '');
+    final location = lecture['location'] as String? ?? '—';
+    if (start == null) return '—';
+    final dateStr = DateFormat('yyyy-MM-dd').format(start);
+    final timeStr = DateFormat('HH:mm').format(start);
+    final dur = end == null
+        ? ''
+        : _formatDuration(end.difference(start).inMinutes);
+    final durStr = dur.isEmpty ? '' : ' · $dur';
+    return '$dateStr · $timeStr · $location$durStr';
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -170,7 +194,7 @@ class PracticalSessionsScreen extends ConsumerWidget {
                                 ),
                                 const Gap(4),
                                 Text(
-                                  '${lecture['date']} · ${lecture['time']}',
+                                  _formatLectureLine(lecture),
                                   style: Theme.of(context).textTheme.bodyMedium,
                                 ),
                               ],

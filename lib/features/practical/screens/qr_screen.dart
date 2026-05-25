@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:gap/gap.dart';
+import 'package:intl/intl.dart';
 import '../../../core/theme/app_theme.dart';
 
 final qrLectureProvider = FutureProvider.family<Map<String, dynamic>?, String>((
@@ -13,7 +14,7 @@ final qrLectureProvider = FutureProvider.family<Map<String, dynamic>?, String>((
   final res = await Supabase.instance.client
       .from('lectures')
       .select(
-        'id, date, time, location, attendance_window_start, attendance_window_end, practical_sessions(title)',
+        'id, start_at, end_at, location, attendance_window_start, attendance_window_end, practical_sessions(title)',
       )
       .eq('id', lectureId)
       .single();
@@ -23,6 +24,29 @@ final qrLectureProvider = FutureProvider.family<Map<String, dynamic>?, String>((
 class QrScreen extends ConsumerWidget {
   final String lectureId;
   const QrScreen({super.key, required this.lectureId});
+
+  String _formatDuration(int mins) {
+    if (mins <= 0) return '';
+    final hours = mins ~/ 60;
+    final rem = mins % 60;
+    if (hours == 0) return '$mins د';
+    if (rem == 0) return '$hours س';
+    return '$hours س $rem د';
+  }
+
+  String _formatLectureTime(Map<String, dynamic> lecture) {
+    final start = DateTime.tryParse(lecture['start_at'] as String? ?? '');
+    final end = DateTime.tryParse(lecture['end_at'] as String? ?? '');
+    final location = lecture['location'] as String? ?? '—';
+    if (start == null) return '—';
+    final dateStr = DateFormat('yyyy-MM-dd').format(start);
+    final timeStr = DateFormat('HH:mm').format(start);
+    final dur = end == null
+        ? ''
+        : _formatDuration(end.difference(start).inMinutes);
+    final durStr = dur.isEmpty ? '' : ' · $dur';
+    return '$dateStr · $timeStr · $location$durStr';
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -77,7 +101,7 @@ class QrScreen extends ConsumerWidget {
                   ),
                   const Gap(6),
                   Text(
-                    '${lecture['date']} · ${lecture['time']} · ${lecture['location']}',
+                    _formatLectureTime(lecture),
                     style: Theme.of(context).textTheme.bodyMedium,
                     textAlign: TextAlign.center,
                   ),
