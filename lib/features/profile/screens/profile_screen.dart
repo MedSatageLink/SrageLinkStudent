@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:gap/gap.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
 
 class StudentProfileScreen extends ConsumerWidget {
@@ -30,72 +31,86 @@ class StudentProfileScreen extends ConsumerWidget {
             ((p['categories'] as Map<String, dynamic>?)?['years']
                 as Map<String, dynamic>?)?['name'] ??
             '—';
-        return Scaffold(
-          appBar: AppBar(title: const Text('ملفي الشخصي')),
-          body: ListView(
-            padding: const EdgeInsets.all(20),
-            children: [
-              Center(
-                child: CircleAvatar(
-                  radius: 48,
-                  backgroundColor: AppColors.primaryContainer,
-                  child: Text(
-                    (p['full_name'] as String? ?? '?')[0],
-                    style: TextStyle(
-                      fontSize: 36,
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.bold,
+        return WillPopScope(
+          onWillPop: () async {
+            context.go('/');
+            return false;
+          },
+          child: Scaffold(
+            appBar: AppBar(
+              title: const Text('ملفي الشخصي'),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.arrow_forward_rounded),
+                  onPressed: () => context.go('/'),
+                ),
+              ],
+            ),
+            body: ListView(
+              padding: const EdgeInsets.all(20),
+              children: [
+                Center(
+                  child: CircleAvatar(
+                    radius: 48,
+                    backgroundColor: AppColors.primaryContainer,
+                    child: Text(
+                      (p['full_name'] as String? ?? '?')[0],
+                      style: TextStyle(
+                        fontSize: 36,
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
+                  ).animate().scale(),
+                ),
+                const Gap(16),
+                Center(
+                  child: Text(
+                    p['full_name'] as String? ?? '',
+                    style: Theme.of(context).textTheme.titleLarge,
                   ),
-                ).animate().scale(),
-              ),
-              const Gap(16),
-              Center(
-                child: Text(
-                  p['full_name'] as String? ?? '',
-                  style: Theme.of(context).textTheme.titleLarge,
                 ),
-              ),
-              Center(
-                child: Text(
-                  user.email ?? '',
-                  style: Theme.of(context).textTheme.bodyMedium,
+                Center(
+                  child: Text(
+                    user.email ?? '',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
                 ),
-              ),
-              const Gap(24),
-              _InfoTile(
-                icon: Icons.badge_outlined,
-                label: 'رقم الجامعة',
-                value: p['university_id'] as String? ?? '—',
-              ),
-              _InfoTile(
-                icon: Icons.group_work_outlined,
-                label: 'الفئة',
-                value: catName,
-              ),
-              _InfoTile(
-                icon: Icons.school_outlined,
-                label: 'السنة',
-                value: yearName,
-              ),
-              _InfoTile(
-                icon: Icons.format_list_numbered,
-                label: 'رقم الترتيب',
-                value: '${p['order_number'] ?? '—'}',
-              ),
-              const Gap(24),
-              OutlinedButton.icon(
-                onPressed: () async {
-                  await Supabase.instance.client.auth.signOut();
-                },
-                icon: const Icon(Icons.logout_rounded),
-                label: const Text('تسجيل الخروج'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.error,
-                  side: BorderSide(color: AppColors.error),
+                const Gap(24),
+                _InfoTile(
+                  icon: Icons.badge_outlined,
+                  label: 'رقم الجامعة',
+                  value: p['university_id'] as String? ?? '—',
                 ),
-              ),
-            ],
+                _InfoTile(
+                  icon: Icons.group_work_outlined,
+                  label: 'الفئة',
+                  value: catName,
+                ),
+                _InfoTile(
+                  icon: Icons.school_outlined,
+                  label: 'السنة',
+                  value: yearName,
+                ),
+                _InfoTile(
+                  icon: Icons.format_list_numbered,
+                  label: 'رقم الترتيب',
+                  value: '${p['order_number'] ?? '—'}',
+                ),
+                const Gap(24),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    await Supabase.instance.client.auth.signOut();
+                  },
+                  icon: const Icon(Icons.logout_rounded),
+                  label: const Text('تسجيل الخروج'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.error,
+                    side: BorderSide(color: AppColors.error),
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },

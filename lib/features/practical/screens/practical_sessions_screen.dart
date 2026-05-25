@@ -93,158 +93,178 @@ class PracticalSessionsScreen extends ConsumerWidget {
     final sessionsAsync = ref.watch(
       practicalSessionsBySubjectProvider(subjectId),
     );
-    return Scaffold(
-      appBar: AppBar(title: const Text('جلساتي العملية')),
-      body: sessionsAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text(e.toString())),
-        data: (sessions) => sessions.isEmpty
-            ? const Center(child: Text('لا توجد جلسات'))
-            : ListView.builder(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                itemCount: sessions.length,
-                itemBuilder: (context, i) {
-                  final s = sessions[i];
-                  final assignment = s['assignment'] as Map<String, dynamic>?;
-                  final isAttended = s['is_attended'] as bool;
+    return WillPopScope(
+      onWillPop: () async {
+        context.go('/');
+        return false;
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('جلساتي العملية'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.arrow_forward_rounded),
+              onPressed: () => context.go('/'),
+            ),
+          ],
+        ),
+        body: sessionsAsync.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, _) => Center(child: Text(e.toString())),
+          data: (sessions) => sessions.isEmpty
+              ? const Center(child: Text('لا توجد جلسات'))
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  itemCount: sessions.length,
+                  itemBuilder: (context, i) {
+                    final s = sessions[i];
+                    final assignment = s['assignment'] as Map<String, dynamic>?;
+                    final isAttended = s['is_attended'] as bool;
 
-                  Color statusColor;
-                  String statusText;
-                  IconData statusIcon;
-                  if (isAttended) {
-                    statusColor = AppColors.success;
-                    statusText = 'حاضر ✓';
-                    statusIcon = Icons.check_circle_rounded;
-                  } else if (assignment != null) {
-                    statusColor = AppColors.warning;
-                    statusText = 'مسجّل';
-                    statusIcon = Icons.schedule_rounded;
-                  } else {
-                    statusColor = AppColors.textSecondary;
-                    statusText = 'غير مسجّل';
-                    statusIcon = Icons.help_outline_rounded;
-                  }
+                    Color statusColor;
+                    String statusText;
+                    IconData statusIcon;
+                    if (isAttended) {
+                      statusColor = AppColors.success;
+                      statusText = 'حاضر ✓';
+                      statusIcon = Icons.check_circle_rounded;
+                    } else if (assignment != null) {
+                      statusColor = AppColors.warning;
+                      statusText = 'مسجّل';
+                      statusIcon = Icons.schedule_rounded;
+                    } else {
+                      statusColor = AppColors.textSecondary;
+                      statusText = 'غير مسجّل';
+                      statusIcon = Icons.help_outline_rounded;
+                    }
 
-                  final lecture =
-                      assignment?['lectures'] as Map<String, dynamic>?;
-                  final residentName =
-                      (lecture?['profiles']
-                          as Map<String, dynamic>?)?['full_name'] ??
-                      '';
+                    final lecture =
+                        assignment?['lectures'] as Map<String, dynamic>?;
+                    final residentName =
+                        (lecture?['profiles']
+                            as Map<String, dynamic>?)?['full_name'] ??
+                        '';
 
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  s['title'] as String,
-                                  style: Theme.of(
-                                    context,
-                                  ).textTheme.titleMedium,
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: statusColor.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      statusIcon,
-                                      size: 14,
-                                      color: statusColor,
-                                    ),
-                                    const Gap(4),
-                                    Text(
-                                      statusText,
-                                      style: TextStyle(
-                                        color: statusColor,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          if (lecture != null) ...[
-                            const Gap(8),
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                             Row(
                               children: [
-                                const Icon(
-                                  Icons.event_outlined,
-                                  size: 14,
-                                  color: AppColors.textSecondary,
-                                ),
-                                const Gap(4),
-                                Text(
-                                  _formatLectureLine(lecture),
-                                  style: Theme.of(context).textTheme.bodyMedium,
-                                ),
-                              ],
-                            ),
-                            const Gap(4),
-                            Row(
-                              children: [
-                                const Icon(
-                                  Icons.location_on_outlined,
-                                  size: 14,
-                                  color: AppColors.textSecondary,
-                                ),
-                                const Gap(4),
-                                Text(
-                                  '${lecture['location']}',
-                                  style: Theme.of(context).textTheme.bodyMedium,
-                                ),
-                                const Gap(8),
-                                const Icon(
-                                  Icons.person_outline,
-                                  size: 14,
-                                  color: AppColors.textSecondary,
-                                ),
-                                const Gap(4),
-                                Text(
-                                  residentName,
-                                  style: Theme.of(context).textTheme.bodyMedium,
-                                ),
-                              ],
-                            ),
-                            if (!isAttended) ...[
-                              const Gap(10),
-                              SizedBox(
-                                width: double.infinity,
-                                child: ElevatedButton.icon(
-                                  onPressed: () => context.go(
-                                    '/practical/qr/${assignment!['lecture_id']}',
+                                Expanded(
+                                  child: Text(
+                                    s['title'] as String,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.titleMedium,
                                   ),
-                                  icon: const Icon(Icons.qr_code_rounded),
-                                  label: const Text('عرض رمز QR للحضور'),
                                 ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: statusColor.withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        statusIcon,
+                                        size: 14,
+                                        color: statusColor,
+                                      ),
+                                      const Gap(4),
+                                      Text(
+                                        statusText,
+                                        style: TextStyle(
+                                          color: statusColor,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (lecture != null) ...[
+                              const Gap(8),
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.event_outlined,
+                                    size: 14,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                  const Gap(4),
+                                  Text(
+                                    _formatLectureLine(lecture),
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodyMedium,
+                                  ),
+                                ],
                               ),
+                              const Gap(4),
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.location_on_outlined,
+                                    size: 14,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                  const Gap(4),
+                                  Text(
+                                    '${lecture['location']}',
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodyMedium,
+                                  ),
+                                  const Gap(8),
+                                  const Icon(
+                                    Icons.person_outline,
+                                    size: 14,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                  const Gap(4),
+                                  Text(
+                                    residentName,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodyMedium,
+                                  ),
+                                ],
+                              ),
+                              if (!isAttended) ...[
+                                const Gap(10),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    onPressed: () => context.go(
+                                      '/practical/qr/${assignment!['lecture_id']}',
+                                    ),
+                                    icon: const Icon(Icons.qr_code_rounded),
+                                    label: const Text('عرض رمز QR للحضور'),
+                                  ),
+                                ),
+                              ],
                             ],
                           ],
-                        ],
+                        ),
                       ),
-                    ),
-                  ).animate(delay: (40 * i).ms).fadeIn();
-                },
-              ),
+                    ).animate(delay: (40 * i).ms).fadeIn();
+                  },
+                ),
+        ),
       ),
     );
   }

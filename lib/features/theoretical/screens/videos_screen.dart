@@ -50,127 +50,145 @@ class VideosScreen extends ConsumerWidget {
     final videosAsync = ref.watch(videosBySubjectProvider(subjectId));
     final completedAsync = ref.watch(completedVideosProvider(subjectId));
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('الفيديوهات')),
-      body: videosAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text(e.toString())),
-        data: (videos) {
-          final completed = completedAsync.value ?? {};
-          return ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            itemCount: videos.length,
-            itemBuilder: (context, i) {
-              final v = videos[i];
-              final ytId = v['youtube_video_id'] as String;
-              final isDone = completed.contains(v['id'] as String);
-              return Card(
-                margin: const EdgeInsets.only(bottom: 10),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(12),
-                  onTap: () => context.go('/theoretical/player/${v['id']}'),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      children: [
-                        Stack(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: CachedNetworkImage(
-                                imageUrl:
-                                    'https://img.youtube.com/vi/$ytId/mqdefault.jpg',
-                                width: 90,
-                                height: 54,
-                                fit: BoxFit.cover,
-                                errorWidget: (_, _, _) => Container(
+    return WillPopScope(
+      onWillPop: () async {
+        context.go('/');
+        return false;
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('الفيديوهات'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.arrow_forward_rounded),
+              onPressed: () => context.go('/'),
+            ),
+          ],
+        ),
+        body: videosAsync.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, _) => Center(child: Text(e.toString())),
+          data: (videos) {
+            final completed = completedAsync.value ?? {};
+            return ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              itemCount: videos.length,
+              itemBuilder: (context, i) {
+                final v = videos[i];
+                final ytId = v['youtube_video_id'] as String;
+                final isDone = completed.contains(v['id'] as String);
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () => context.go('/theoretical/player/${v['id']}'),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Row(
+                        children: [
+                          Stack(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: CachedNetworkImage(
+                                  imageUrl:
+                                      'https://img.youtube.com/vi/$ytId/mqdefault.jpg',
                                   width: 90,
                                   height: 54,
-                                  color: AppColors.surfaceVariant,
-                                  child: const Icon(Icons.play_circle_outline),
-                                ),
-                              ),
-                            ),
-                            if (isDone)
-                              Positioned.fill(
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: AppColors.success.withValues(
-                                      alpha: 0.7,
+                                  fit: BoxFit.cover,
+                                  errorWidget: (_, _, _) => Container(
+                                    width: 90,
+                                    height: 54,
+                                    color: AppColors.surfaceVariant,
+                                    child: const Icon(
+                                      Icons.play_circle_outline,
                                     ),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: const Icon(
-                                    Icons.check_circle_rounded,
-                                    color: Colors.white,
-                                    size: 28,
                                   ),
                                 ),
                               ),
-                          ],
-                        ),
-                        const Gap(12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                v['title'] as String,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.titleSmall,
-                              ),
-                              const Gap(4),
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.timer_outlined,
-                                    size: 14,
-                                    color: AppColors.textSecondary,
-                                  ),
-                                  const Gap(4),
-                                  Text(
-                                    _formatDuration(
-                                      v['duration_seconds'] as int,
+                              if (isDone)
+                                Positioned.fill(
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: AppColors.success.withValues(
+                                        alpha: 0.7,
+                                      ),
+                                      borderRadius: BorderRadius.circular(8),
                                     ),
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.bodyMedium,
-                                  ),
-                                  const Gap(12),
-                                  if (isDone)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 2,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.success.withValues(
-                                          alpha: 0.1,
-                                        ),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Text(
-                                        'مكتمل',
-                                        style: TextStyle(
-                                          color: AppColors.success,
-                                          fontSize: 11,
-                                        ),
-                                      ),
+                                    child: const Icon(
+                                      Icons.check_circle_rounded,
+                                      color: Colors.white,
+                                      size: 28,
                                     ),
-                                ],
-                              ),
+                                  ),
+                                ),
                             ],
                           ),
-                        ),
-                      ],
+                          const Gap(12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  v['title'] as String,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.titleSmall,
+                                ),
+                                const Gap(4),
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.timer_outlined,
+                                      size: 14,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                    const Gap(4),
+                                    Text(
+                                      _formatDuration(
+                                        v['duration_seconds'] as int,
+                                      ),
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodyMedium,
+                                    ),
+                                    const Gap(12),
+                                    if (isDone)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.success.withValues(
+                                            alpha: 0.1,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          'مكتمل',
+                                          style: TextStyle(
+                                            color: AppColors.success,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ).animate(delay: (30 * i).ms).fadeIn();
-            },
-          );
-        },
+                ).animate(delay: (30 * i).ms).fadeIn();
+              },
+            );
+          },
+        ),
       ),
     );
   }
