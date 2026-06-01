@@ -123,6 +123,9 @@ class PracticalSessionsScreen extends ConsumerWidget {
                     final s = sessions[i];
                     final assignment = s['assignment'] as Map<String, dynamic>?;
                     final isAttended = s['is_attended'] as bool;
+                    final muted = Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withValues(alpha: 0.6);
 
                     Color statusColor;
                     String statusText;
@@ -136,7 +139,7 @@ class PracticalSessionsScreen extends ConsumerWidget {
                       statusText = 'مسجّل';
                       statusIcon = Icons.schedule_rounded;
                     } else {
-                      statusColor = AppColors.textSecondary;
+                      statusColor = muted;
                       statusText = 'غير مسجّل';
                       statusIcon = Icons.help_outline_rounded;
                     }
@@ -200,10 +203,10 @@ class PracticalSessionsScreen extends ConsumerWidget {
                               const Gap(8),
                               Row(
                                 children: [
-                                  const Icon(
+                                  Icon(
                                     Icons.event_outlined,
                                     size: 14,
-                                    color: AppColors.textSecondary,
+                                    color: muted,
                                   ),
                                   const Gap(4),
                                   Text(
@@ -217,10 +220,10 @@ class PracticalSessionsScreen extends ConsumerWidget {
                               const Gap(4),
                               Row(
                                 children: [
-                                  const Icon(
+                                  Icon(
                                     Icons.location_on_outlined,
                                     size: 14,
-                                    color: AppColors.textSecondary,
+                                    color: muted,
                                   ),
                                   const Gap(4),
                                   Text(
@@ -230,10 +233,10 @@ class PracticalSessionsScreen extends ConsumerWidget {
                                     ).textTheme.bodyMedium,
                                   ),
                                   const Gap(8),
-                                  const Icon(
+                                  Icon(
                                     Icons.person_outline,
                                     size: 14,
-                                    color: AppColors.textSecondary,
+                                    color: muted,
                                   ),
                                   const Gap(4),
                                   Text(

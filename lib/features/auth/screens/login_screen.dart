@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -20,6 +22,46 @@ class _State extends ConsumerState<StudentLoginScreen> {
   bool _loading = false;
   bool _obscure = true;
   String? _error;
+
+  static const _cardBg = Color(0xB3121A2B);
+  static const _fieldBg = Color(0xFF0B1224);
+  static const _fieldBorder = Color(0xFF1F2A44);
+  static const _fieldText = Color(0xFFF8FAFC);
+  static const _fieldHint = Color(0xFFB6C2D9);
+  static const _buttonBg = Color(0xFF2D6BFF);
+
+  InputDecoration _fieldDecoration({
+    required String label,
+    required IconData icon,
+    Widget? suffix,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon, color: _fieldText),
+      suffixIcon: suffix,
+      filled: true,
+      fillColor: _fieldBg,
+      labelStyle: const TextStyle(color: _fieldHint),
+      hintStyle: const TextStyle(color: _fieldHint),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: _fieldBorder),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: _buttonBg, width: 2),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: AppColors.error),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: AppColors.error, width: 2),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    );
+  }
 
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
@@ -84,91 +126,108 @@ class _State extends ConsumerState<StudentLoginScreen> {
                         color: Colors.white,
                       ),
                     ).animate(delay: 200.ms).fadeIn().slideY(begin: 0.2),
-                    Text(
-                      'بوابة الطالب',
-                      style: GoogleFonts.cairo(
-                        fontSize: 15,
-                        color: Colors.white70,
-                      ),
-                    ).animate(delay: 300.ms).fadeIn(),
+                    
                     const Gap(36),
-                    Container(
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: Column(
-                        children: [
-                          TextFormField(
-                            controller: _emailCtrl,
-                            keyboardType: TextInputType.emailAddress,
-                            textDirection: TextDirection.ltr,
-                            decoration: const InputDecoration(
-                              labelText: 'البريد الإلكتروني',
-                              prefixIcon: Icon(Icons.email_outlined),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(24),
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                        child: Container(
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            color: _cardBg,
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.18),
                             ),
-                            validator: (v) =>
-                                v!.isEmpty ? 'أدخل البريد الإلكتروني' : null,
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x660B1224),
+                                blurRadius: 28,
+                                offset: Offset(0, 14),
+                              ),
+                            ],
                           ),
-                          const Gap(16),
-                          TextFormField(
-                            controller: _passCtrl,
-                            obscureText: _obscure,
-                            textDirection: TextDirection.ltr,
-                            decoration: InputDecoration(
-                              labelText: 'كلمة المرور',
-                              prefixIcon: const Icon(
-                                Icons.lock_outline_rounded,
-                              ),
-                              suffixIcon: IconButton(
-                                icon: Icon(
-                                  _obscure
-                                      ? Icons.visibility_off_outlined
-                                      : Icons.visibility_outlined,
+                          child: Column(
+                            children: [
+                              TextFormField(
+                                controller: _emailCtrl,
+                                keyboardType: TextInputType.emailAddress,
+                                textDirection: TextDirection.ltr,
+                                style: const TextStyle(color: _fieldText),
+                                decoration: _fieldDecoration(
+                                  label: 'البريد الإلكتروني',
+                                  icon: Icons.email_outlined,
                                 ),
-                                onPressed: () =>
-                                    setState(() => _obscure = !_obscure),
+                                validator: (v) => v!.isEmpty
+                                    ? 'أدخل البريد الإلكتروني'
+                                    : null,
                               ),
-                            ),
-                            validator: (v) =>
-                                v!.isEmpty ? 'أدخل كلمة المرور' : null,
-                          ),
-                          if (_error != null) ...[
-                            const Gap(12),
-                            Text(
-                              _error!,
-                              style: const TextStyle(color: AppColors.error),
-                            ),
-                          ],
-                          const Gap(20),
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: _loading ? null : _login,
-                              style: ElevatedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
-                                ),
-                                backgroundColor: const Color(0xFF2563EB),
-                                foregroundColor: Colors.white,
-                              ),
-                              child: _loading
-                                  ? const SizedBox(
-                                      width: 22,
-                                      height: 22,
-                                      child: CircularProgressIndicator(
-                                        color: Colors.white,
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Text(
-                                      'تسجيل الدخول',
-                                      style: TextStyle(fontSize: 16),
+                              const Gap(16),
+                              TextFormField(
+                                controller: _passCtrl,
+                                obscureText: _obscure,
+                                textDirection: TextDirection.ltr,
+                                style: const TextStyle(color: _fieldText),
+                                decoration: _fieldDecoration(
+                                  label: 'كلمة المرور',
+                                  icon: Icons.lock_outline_rounded,
+                                  suffix: IconButton(
+                                    icon: Icon(
+                                      _obscure
+                                          ? Icons.visibility_off_outlined
+                                          : Icons.visibility_outlined,
+                                      color: _fieldText,
                                     ),
-                            ),
+                                    onPressed: () =>
+                                        setState(() => _obscure = !_obscure),
+                                  ),
+                                ),
+                                validator: (v) =>
+                                    v!.isEmpty ? 'أدخل كلمة المرور' : null,
+                              ),
+                              if (_error != null) ...[
+                                const Gap(12),
+                                Text(
+                                  _error!,
+                                  style: const TextStyle(
+                                    color: AppColors.error,
+                                  ),
+                                ),
+                              ],
+                              const Gap(20),
+                              SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton(
+                                  onPressed: _loading ? null : _login,
+                                  style: ElevatedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 14,
+                                    ),
+                                    backgroundColor: _buttonBg,
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                  ),
+                                  child: _loading
+                                      ? const SizedBox(
+                                          width: 22,
+                                          height: 22,
+                                          child: CircularProgressIndicator(
+                                            color: Colors.white,
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Text(
+                                          'تسجيل الدخول',
+                                          style: TextStyle(fontSize: 16),
+                                        ),
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
                       ),
                     ).animate(delay: 400.ms).fadeIn().slideY(begin: 0.1),
                   ],

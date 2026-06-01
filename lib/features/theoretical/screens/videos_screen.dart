@@ -99,7 +99,9 @@ class VideosScreen extends ConsumerWidget {
                                   errorWidget: (_, _, _) => Container(
                                     width: 90,
                                     height: 54,
-                                    color: AppColors.surfaceVariant,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.surfaceVariant,
                                     child: const Icon(
                                       Icons.play_circle_outline,
                                     ),
@@ -138,10 +140,13 @@ class VideosScreen extends ConsumerWidget {
                                 const Gap(4),
                                 Row(
                                   children: [
-                                    const Icon(
+                                    Icon(
                                       Icons.timer_outlined,
                                       size: 14,
-                                      color: AppColors.textSecondary,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface
+                                          .withValues(alpha: 0.6),
                                     ),
                                     const Gap(4),
                                     Text(

@@ -164,7 +164,7 @@ class _SubjectsTab extends ConsumerWidget {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        tileColor: AppColors.surface,
+                        tileColor: Theme.of(context).colorScheme.surface,
                         leading: CircleAvatar(
                           backgroundColor: leadingBg.withValues(
                             alpha: leadingBgOpacity,
