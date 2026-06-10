@@ -12,6 +12,8 @@ import '../../features/practical/screens/practical_years_screen.dart';
 import '../../features/practical/screens/practical_subjects_screen.dart';
 import '../../features/practical/screens/practical_sessions_screen.dart';
 import '../../features/practical/screens/qr_screen.dart';
+import '../../features/practical/screens/practical_videos_screen.dart';
+import '../../features/practical/screens/practical_video_player_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -67,6 +69,19 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/practical/qr/:lectureId',
         builder: (_, state) =>
             QrScreen(lectureId: state.pathParameters['lectureId']!),
+      ),
+      GoRoute(
+        path: '/practical/videos/:subjectId',
+        builder: (_, state) => PracticalVideosScreen(
+          subjectId: state.pathParameters['subjectId']!,
+        ),
+      ),
+      GoRoute(
+        path: '/practical/video-player/:videoId',
+        builder: (_, state) => PracticalVideoPlayerScreen(
+          videoId: state.pathParameters['videoId']!,
+          subjectId: state.uri.queryParameters['subjectId'],
+        ),
       ),
       GoRoute(
         path: '/profile',

@@ -100,6 +100,11 @@ class PracticalSessionsScreen extends ConsumerWidget {
       },
       child: Scaffold(
         appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.ondemand_video_rounded),
+            tooltip: 'فيديوهات اختيارية',
+            onPressed: () => context.go('/practical/videos/$subjectId'),
+          ),
           title: const Text('جلساتي العملية'),
           actions: [
             IconButton(
