@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -5,7 +8,96 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:gap/gap.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/theme/app_theme.dart';
+
+Future<void> _cacheQrLecturesLocally(List assignments) async {
+  final prefs = await SharedPreferences.getInstance();
+  for (final a in assignments) {
+    final map = a as Map<String, dynamic>;
+    final lecture = map['lectures'] as Map<String, dynamic>?;
+    final lectureId = map['lecture_id'] as String?;
+    if (lecture == null || lectureId == null) continue;
+    await prefs.setString('qr_lecture_$lectureId', jsonEncode(lecture));
+  }
+}
+
+Future<List<Map<String, dynamic>>> _fetchPracticalSessionsRemote({
+  required String uid,
+  required String subjectId,
+}) async {
+  // Get all sessions for this subject
+  final sessions = await Supabase.instance.client
+      .from('practical_sessions')
+      .select('id, title, prerequisite_video_id')
+      .eq('subject_id', subjectId)
+      .order('created_at');
+
+  // Get student's lecture assignments (join through lectures to get session_id)
+  final assignmentsRes = await Supabase.instance.client
+      .from('lecture_assignments')
+      .select(
+        'lecture_id, lectures(id, practical_session_id, start_at, end_at, location, attendance_window_start, attendance_window_end, profiles(full_name))',
+      )
+      .eq('student_id', uid);
+  final assignments = List<Map<String, dynamic>>.from(assignmentsRes as List);
+
+  // Cache lecture payloads locally so QR screen can still work offline.
+  await _cacheQrLecturesLocally(assignments);
+
+  // Map: session_id -> assignment
+  final assignMap = <String, Map<String, dynamic>>{};
+  for (final a in assignments) {
+    final lecture = a['lectures'] as Map<String, dynamic>?;
+    if (lecture == null) continue;
+    final sessionId = lecture['practical_session_id'] as String;
+    assignMap[sessionId] = a;
+  }
+
+  // Get attended lectures
+  final attendance = await Supabase.instance.client
+      .from('practical_attendance')
+      .select('lecture_id')
+      .eq('student_id', uid);
+  final attendedIds = Set<String>.from(
+    (attendance as List).map((a) => a['lecture_id'] as String),
+  );
+
+  final result = (sessions as List).map((s) {
+    final session = Map<String, dynamic>.from(s as Map);
+    final assign = assignMap[session['id'] as String];
+    return {
+      ...session,
+      'assignment': assign,
+      'is_attended':
+          assign != null && attendedIds.contains(assign['lecture_id']),
+    };
+  }).toList();
+
+  return result;
+}
+
+Future<List<Map<String, dynamic>>?> _readPracticalSessionsCache(
+  String subjectId,
+) async {
+  final prefs = await SharedPreferences.getInstance();
+  final cachedRaw = prefs.getString('practical_sessions_subject_$subjectId');
+  if (cachedRaw == null) return null;
+  return List<Map<String, dynamic>>.from(
+    (jsonDecode(cachedRaw) as List).cast<Map<String, dynamic>>(),
+  );
+}
+
+Future<void> _writePracticalSessionsCache(
+  String subjectId,
+  List<Map<String, dynamic>> data,
+) async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setString(
+    'practical_sessions_subject_$subjectId',
+    jsonEncode(data),
+  );
+}
 
 // Sessions for a subject
 final practicalSessionsBySubjectProvider =
@@ -14,56 +106,58 @@ final practicalSessionsBySubjectProvider =
       subjectId,
     ) async {
       final uid = Supabase.instance.client.auth.currentUser!.id;
-
-      // Get all sessions for this subject
-      final sessions = await Supabase.instance.client
-          .from('practical_sessions')
-          .select('id, title, prerequisite_video_id')
-          .eq('subject_id', subjectId)
-          .order('created_at');
-
-      // Get student's lecture assignments (join through lectures to get session_id)
-      final assignments = await Supabase.instance.client
-          .from('lecture_assignments')
-          .select(
-            'lecture_id, lectures(id, practical_session_id, start_at, end_at, location, attendance_window_start, attendance_window_end, profiles(full_name))',
-          )
-          .eq('student_id', uid);
-
-      // Map: session_id -> assignment
-      final assignMap = <String, Map<String, dynamic>>{};
-      for (final a in (assignments as List)) {
-        final lecture = a['lectures'] as Map<String, dynamic>?;
-        if (lecture == null) continue;
-        final sessionId = lecture['practical_session_id'] as String;
-        assignMap[sessionId] = a as Map<String, dynamic>;
+      final cached = await _readPracticalSessionsCache(subjectId);
+      if (cached != null) {
+        unawaited(
+          _fetchPracticalSessionsRemote(uid: uid, subjectId: subjectId)
+              .then((fresh) => _writePracticalSessionsCache(subjectId, fresh))
+              .catchError((_) {}),
+        );
+        return cached;
       }
 
-      // Get attended lectures
-      final attendance = await Supabase.instance.client
-          .from('practical_attendance')
-          .select('lecture_id')
-          .eq('student_id', uid);
-      final attendedIds = Set<String>.from(
-        (attendance as List).map((a) => a['lecture_id'] as String),
+      final fresh = await _fetchPracticalSessionsRemote(
+        uid: uid,
+        subjectId: subjectId,
       );
-
-      final result = (sessions as List).map((s) {
-        final assign = assignMap[s['id'] as String];
-        return {
-          ...s as Map<String, dynamic>,
-          'assignment': assign,
-          'is_attended':
-              assign != null && attendedIds.contains(assign['lecture_id']),
-        };
-      }).toList();
-
-      return result;
+      await _writePracticalSessionsCache(subjectId, fresh);
+      return fresh;
     });
 
 class PracticalSessionsScreen extends ConsumerWidget {
   final String subjectId;
   const PracticalSessionsScreen({super.key, required this.subjectId});
+
+  Map<String, dynamic> _buildQrSeed(
+    Map<String, dynamic> lecture,
+    String sessionTitle,
+  ) {
+    return {
+      ...lecture,
+      'practical_sessions': {'title': sessionTitle},
+    };
+  }
+
+  Future<void> _openQr(
+    BuildContext context, {
+    required String subjectId,
+    required String lectureId,
+    required Map<String, dynamic> lecture,
+    required String sessionTitle,
+  }) async {
+    final seedMap = _buildQrSeed(lecture, sessionTitle);
+    final seedJson = jsonEncode(seedMap);
+
+    // Persist locally first to make QR details instantly available offline.
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('qr_lecture_$lectureId', seedJson);
+
+    final seedEncoded = Uri.encodeComponent(seedJson);
+    if (!context.mounted) return;
+    context.go(
+      '/practical/qr/$lectureId?subjectId=$subjectId&seed=$seedEncoded',
+    );
+  }
 
   String _formatDuration(int mins) {
     if (mins <= 0) return '';
@@ -257,8 +351,13 @@ class PracticalSessionsScreen extends ConsumerWidget {
                                 SizedBox(
                                   width: double.infinity,
                                   child: ElevatedButton.icon(
-                                    onPressed: () => context.go(
-                                      '/practical/qr/${assignment!['lecture_id']}',
+                                    onPressed: () => _openQr(
+                                      context,
+                                      subjectId: subjectId,
+                                      lectureId:
+                                          assignment!['lecture_id'] as String,
+                                      lecture: lecture,
+                                      sessionTitle: s['title'] as String,
                                     ),
                                     icon: const Icon(Icons.qr_code_rounded),
                                     label: const Text('عرض رمز QR للحضور'),

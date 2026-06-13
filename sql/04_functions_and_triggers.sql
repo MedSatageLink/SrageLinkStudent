@@ -49,6 +49,11 @@ BEGIN
   FROM   public.lectures
   WHERE  id = NEW.lecture_id;
 
+  -- Allow explicit late approval path only through SECURITY DEFINER function
+  IF COALESCE(current_setting('app.allow_late_attendance', true), 'off') = 'on' THEN
+    RETURN NEW;
+  END IF;
+
   -- Window check
   IF NOW() < v_start OR NOW() > v_end THEN
     RAISE EXCEPTION 'نافذة تسجيل الحضور مغلقة لهذه المحاضرة';

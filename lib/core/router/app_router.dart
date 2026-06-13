@@ -67,8 +67,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/practical/qr/:lectureId',
-        builder: (_, state) =>
-            QrScreen(lectureId: state.pathParameters['lectureId']!),
+        builder: (_, state) => QrScreen(
+          lectureId: state.pathParameters['lectureId']!,
+          subjectId: state.uri.queryParameters['subjectId'],
+          seed: state.uri.queryParameters['seed'],
+        ),
       ),
       GoRoute(
         path: '/practical/videos/:subjectId',

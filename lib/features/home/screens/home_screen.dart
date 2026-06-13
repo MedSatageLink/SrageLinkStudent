@@ -1,20 +1,46 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/theme/app_theme.dart';
 
 final studentProfileProvider = FutureProvider<Map<String, dynamic>>((
   ref,
 ) async {
   final uid = Supabase.instance.client.auth.currentUser!.id;
-  final res = await Supabase.instance.client
-      .from('profiles')
-      .select('*, categories(name, year_id, years(name))')
-      .eq('id', uid)
-      .single();
-  return res;
+
+  Future<Map<String, dynamic>> fetchRemote() async {
+    final res = await Supabase.instance.client
+        .from('profiles')
+        .select('*, categories(name, year_id, years(name))')
+        .eq('id', uid)
+        .single();
+    return Map<String, dynamic>.from(res);
+  }
+
+  final prefs = await SharedPreferences.getInstance();
+  final cacheKey = 'student_profile_$uid';
+  final cachedRaw = prefs.getString(cacheKey);
+  if (cachedRaw != null) {
+    final cached = Map<String, dynamic>.from(jsonDecode(cachedRaw) as Map);
+    unawaited(
+      fetchRemote()
+          .then((fresh) async {
+            await prefs.setString(cacheKey, jsonEncode(fresh));
+          })
+          .catchError((_) {}),
+    );
+    return cached;
+  }
+
+  final fresh = await fetchRemote();
+  await prefs.setString(cacheKey, jsonEncode(fresh));
+  return fresh;
 });
 
 final subjectsByYearProvider =
@@ -22,12 +48,37 @@ final subjectsByYearProvider =
       ref,
       yearId,
     ) async {
-      final res = await Supabase.instance.client
-          .from('subjects')
-          .select('id, name, description')
-          .eq('year_id', yearId)
-          .order('name');
-      return List<Map<String, dynamic>>.from(res as List);
+      Future<List<Map<String, dynamic>>> fetchRemote() async {
+        final res = await Supabase.instance.client
+            .from('subjects')
+            .select('id, name, description')
+            .eq('year_id', yearId)
+            .order('name');
+        return List<Map<String, dynamic>>.from(res as List);
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      final cacheKey = 'home_subjects_year_$yearId';
+      final cachedRaw = prefs.getString(cacheKey);
+      if (cachedRaw != null) {
+        final cachedList = List<Map<String, dynamic>>.from(
+          (jsonDecode(cachedRaw) as List).cast<Map<String, dynamic>>(),
+        );
+
+        unawaited(
+          fetchRemote()
+              .then((fresh) async {
+                await prefs.setString(cacheKey, jsonEncode(fresh));
+              })
+              .catchError((_) {}),
+        );
+
+        return cachedList;
+      }
+
+      final fresh = await fetchRemote();
+      await prefs.setString(cacheKey, jsonEncode(fresh));
+      return fresh;
     });
 
 class StudentHomeScreen extends ConsumerWidget {
