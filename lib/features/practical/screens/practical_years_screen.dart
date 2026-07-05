@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
+import 'package:stagelink_student/core/utils/app_error_message.dart';
 
 final practicalYearsProvider = FutureProvider<List<Map<String, dynamic>>>((
   ref,
@@ -24,7 +25,7 @@ class PracticalYearsScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('الجلسات العملية')),
       body: yearsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text(e.toString())),
+        error: (e, _) => Center(child: Text(AppErrorMessage.from(e))),
         data: (years) => GridView.builder(
           padding: const EdgeInsets.all(16),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(

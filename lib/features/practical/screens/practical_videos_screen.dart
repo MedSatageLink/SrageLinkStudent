@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:go_router/go_router.dart';
 import 'package:gap/gap.dart';
+import 'package:stagelink_student/core/utils/app_error_message.dart';
 
 final practicalVideosBySubjectProvider =
     FutureProvider.family<List<Map<String, dynamic>>, String>((
@@ -43,7 +44,7 @@ class PracticalVideosScreen extends ConsumerWidget {
         ),
         body: videosAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(child: Text(e.toString())),
+          error: (e, _) => Center(child: Text(AppErrorMessage.from(e))),
           data: (videos) {
             if (videos.isEmpty) {
               return const Center(

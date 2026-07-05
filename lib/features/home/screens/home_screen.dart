@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:stagelink_student/core/utils/app_error_message.dart';
 import '../../../core/theme/app_theme.dart';
 
 final studentProfileProvider = FutureProvider<Map<String, dynamic>>((
@@ -91,7 +92,8 @@ class StudentHomeScreen extends ConsumerWidget {
     return profileAsync.when(
       loading: () =>
           const Scaffold(body: Center(child: CircularProgressIndicator())),
-      error: (e, _) => Scaffold(body: Center(child: Text(e.toString()))),
+      error: (e, _) =>
+          Scaffold(body: Center(child: Text(AppErrorMessage.from(e)))),
       data: (profile) {
         final yearId =
             (profile['categories'] as Map<String, dynamic>?)?['year_id']
@@ -200,7 +202,7 @@ class _SubjectsTab extends ConsumerWidget {
         Expanded(
           child: subjectsAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(child: Text(e.toString())),
+            error: (e, _) => Center(child: Text(AppErrorMessage.from(e))),
             data: (subjects) => subjects.isEmpty
                 ? Center(child: Text(emptyText))
                 : ListView.builder(

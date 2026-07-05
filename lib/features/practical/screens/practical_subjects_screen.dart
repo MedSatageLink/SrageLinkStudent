@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
+import 'package:stagelink_student/core/utils/app_error_message.dart';
 import '../../../core/theme/app_theme.dart';
 
 final practicalSubjectsByYearProvider =
@@ -29,7 +30,7 @@ class PracticalSubjectsScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('الستاجات العملية')),
       body: subjectsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text(e.toString())),
+        error: (e, _) => Center(child: Text(AppErrorMessage.from(e))),
         data: (subjects) => subjects.isEmpty
             ? const Center(child: Text('لا توجد ستاجات'))
             : ListView.builder(

@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:gap/gap.dart';
+import 'package:stagelink_student/core/utils/app_error_message.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/router/app_router.dart';
 
@@ -76,7 +77,7 @@ class _State extends ConsumerState<StudentLoginScreen> {
       );
       ref.invalidate(routerProvider);
     } catch (e) {
-      setState(() => _error = 'البريد أو كلمة المرور غير صحيحة');
+      setState(() => _error = AppErrorMessage.from(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -126,7 +127,7 @@ class _State extends ConsumerState<StudentLoginScreen> {
                         color: Colors.white,
                       ),
                     ).animate(delay: 200.ms).fadeIn().slideY(begin: 0.2),
-                    
+
                     const Gap(36),
                     ClipRRect(
                       borderRadius: BorderRadius.circular(24),

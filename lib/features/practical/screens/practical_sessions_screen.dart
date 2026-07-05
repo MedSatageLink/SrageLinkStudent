@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import 'package:gap/gap.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:stagelink_student/core/utils/app_error_message.dart';
 import '../../../core/theme/app_theme.dart';
 
 Future<void> _cacheQrLecturesLocally(List assignments) async {
@@ -209,7 +210,7 @@ class PracticalSessionsScreen extends ConsumerWidget {
         ),
         body: sessionsAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(child: Text(e.toString())),
+          error: (e, _) => Center(child: Text(AppErrorMessage.from(e))),
           data: (sessions) => sessions.isEmpty
               ? const Center(child: Text('لا توجد جلسات'))
               : ListView.builder(
