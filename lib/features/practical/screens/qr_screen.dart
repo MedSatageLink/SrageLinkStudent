@@ -78,6 +78,16 @@ class _QrScreenState extends ConsumerState<QrScreen> {
   bool _isBusy = false;
   String? _status;
 
+  bool _isGrantedState(PeripheralBluetoothState state) {
+    final value = state.toString().toLowerCase();
+    return value.contains('granted') || value.contains('ready');
+  }
+
+  bool _isTurnedOffState(PeripheralBluetoothState state) {
+    final value = state.toString().toLowerCase();
+    return value.contains('turnedoff') || value.endsWith('.off');
+  }
+
   StudentAttendanceEventType get _eventType =>
       widget.eventType == StudentAttendanceEventType.checkOut.name
       ? StudentAttendanceEventType.checkOut
@@ -154,17 +164,35 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       }
 
       var permissionState = await _peripheral.hasPermission();
-      if (permissionState != PeripheralBluetoothState.granted &&
-          permissionState != PeripheralBluetoothState.ready) {
+
+      if (!_isGrantedState(permissionState)) {
         permissionState = await _peripheral.requestPermission();
       }
 
-      if (permissionState == PeripheralBluetoothState.turnedOff) {
+      if (!_isGrantedState(permissionState) &&
+          !_isTurnedOffState(permissionState)) {
+        setState(() {
+          _status =
+              'صلاحية البلوتوث غير كافية (${permissionState.toString()})، يرجى السماح بالتطبيق من الإعدادات';
+        });
+        return;
+      }
+
+      if (_isTurnedOffState(permissionState)) {
         final enabled = await _peripheral.enableBluetooth();
         if (!enabled) {
           setState(() {
             _status = 'يرجى تفعيل البلوتوث';
             _isBusy = false;
+          });
+          return;
+        }
+
+        permissionState = await _peripheral.hasPermission();
+        if (!_isGrantedState(permissionState)) {
+          setState(() {
+            _status =
+                'تم تشغيل البلوتوث لكن الصلاحية ليست جاهزة (${permissionState.toString()})';
           });
           return;
         }
@@ -176,16 +204,12 @@ class _QrScreenState extends ConsumerState<QrScreen> {
         eventType: _eventType,
       );
 
-      await _peripheral.start(
-        advertiseData: AdvertiseDataCore(
-          serviceUuid: '8d1b2afc-2857-4ad0-9872-16c9f1f7f221',
-          manufacturerId: BleAttendanceCodec.manufacturerId,
-          manufacturerData: payload,
-          localName: _eventType == StudentAttendanceEventType.checkIn
-              ? 'SL-CHECKIN'
-              : 'SL-CHECKOUT',
-        ),
+      final advertiseData = AdvertiseDataCore(
+        manufacturerId: BleAttendanceCodec.manufacturerId,
+        manufacturerData: payload,
       );
+
+      await _peripheral.start(advertiseData: advertiseData);
 
       final started = await _peripheral.isAdvertising;
 
