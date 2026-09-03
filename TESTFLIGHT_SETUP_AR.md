@@ -27,3 +27,5 @@
 - اذهب إلى Actions > iOS TestFlight (Student) > Run workflow.
 
 > آخر تحديث CI: trigger-from-local-push
+
+trigger student: 2026-09-03T21:07:51
