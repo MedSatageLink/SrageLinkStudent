@@ -2,12 +2,13 @@ import 'dart:convert';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:gap/gap.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../core/services/ble_attendance_codec.dart';
 
 final qrLectureProvider = FutureProvider.family<Map<String, dynamic>?, String>((
   ref,
@@ -54,21 +55,44 @@ final qrLectureProvider = FutureProvider.family<Map<String, dynamic>?, String>((
   }
 });
 
-class QrScreen extends ConsumerWidget {
+class QrScreen extends ConsumerStatefulWidget {
   final String lectureId;
   final String? subjectId;
   final String? seed;
+  final String? eventType;
   const QrScreen({
     super.key,
     required this.lectureId,
     this.subjectId,
     this.seed,
+    this.eventType,
   });
 
+  @override
+  ConsumerState<QrScreen> createState() => _QrScreenState();
+}
+
+class _QrScreenState extends ConsumerState<QrScreen> {
+  final FlutterBlePeripheral _peripheral = FlutterBlePeripheral();
+  bool _isAdvertising = false;
+  bool _isBusy = false;
+  String? _status;
+
+  StudentAttendanceEventType get _eventType =>
+      widget.eventType == StudentAttendanceEventType.checkOut.name
+      ? StudentAttendanceEventType.checkOut
+      : StudentAttendanceEventType.checkIn;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_startAdvertising());
+  }
+
   Map<String, dynamic>? _parseSeed() {
-    if (seed == null || seed!.trim().isEmpty) return null;
+    if (widget.seed == null || widget.seed!.trim().isEmpty) return null;
     try {
-      final decoded = jsonDecode(seed!);
+      final decoded = jsonDecode(widget.seed!);
       if (decoded is Map<String, dynamic>) return decoded;
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
       return null;
@@ -102,7 +126,7 @@ class QrScreen extends ConsumerWidget {
 
   void _goBack(BuildContext context, Map<String, dynamic>? lecture) {
     final sid =
-        subjectId ??
+        widget.subjectId ??
         (lecture?['subject_id'] as String?) ??
         (lecture?['practical_sessions'] as Map<String, dynamic>?)?['subject_id']
             as String?;
@@ -113,25 +137,113 @@ class QrScreen extends ConsumerWidget {
     context.go('/practical/sessions/$sid');
   }
 
+  Future<void> _startAdvertising() async {
+    if (_isBusy || _isAdvertising) return;
+    setState(() {
+      _isBusy = true;
+      _status = null;
+    });
+
+    try {
+      if (!await _peripheral.isSupported) {
+        setState(() {
+          _status = 'الجهاز لا يدعم بث BLE';
+          _isBusy = false;
+        });
+        return;
+      }
+
+      var permissionState = await _peripheral.hasPermission();
+      if (permissionState != PeripheralBluetoothState.granted &&
+          permissionState != PeripheralBluetoothState.ready) {
+        permissionState = await _peripheral.requestPermission();
+      }
+
+      if (permissionState == PeripheralBluetoothState.turnedOff) {
+        final enabled = await _peripheral.enableBluetooth();
+        if (!enabled) {
+          setState(() {
+            _status = 'يرجى تفعيل البلوتوث';
+            _isBusy = false;
+          });
+          return;
+        }
+      }
+
+      final uid = Supabase.instance.client.auth.currentUser!.id;
+      final payload = BleAttendanceCodec.buildManufacturerData(
+        studentId: uid,
+        eventType: _eventType,
+      );
+
+      await _peripheral.start(
+        advertiseData: AdvertiseDataCore(
+          serviceUuid: '8d1b2afc-2857-4ad0-9872-16c9f1f7f221',
+          manufacturerId: BleAttendanceCodec.manufacturerId,
+          manufacturerData: payload,
+          localName: _eventType == StudentAttendanceEventType.checkIn
+              ? 'SL-CHECKIN'
+              : 'SL-CHECKOUT',
+        ),
+      );
+
+      final started = await _peripheral.isAdvertising;
+
+      setState(() {
+        _isAdvertising = started;
+        _status = started
+            ? 'تم بدء الإرسال بنجاح، قم بتقريب جهازك من جهاز المقيم'
+            : 'تعذر بدء الإرسال، تحقق من البلوتوث والصلاحيات';
+      });
+    } catch (_) {
+      setState(() {
+        _status = 'تعذر بدء الإرسال، حاول مجدداً';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isBusy = false);
+      }
+    }
+  }
+
+  Future<void> _stopAdvertising() async {
+    try {
+      await _peripheral.stop();
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() => _isAdvertising = false);
+  }
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final lectureAsync = ref.watch(qrLectureProvider(lectureId));
-    final uid = Supabase.instance.client.auth.currentUser!.id;
+  void dispose() {
+    unawaited(_stopAdvertising());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final lectureAsync = ref.watch(qrLectureProvider(widget.lectureId));
     final seededLecture = _parseSeed();
     final lecture = lectureAsync.valueOrNull ?? seededLecture;
 
     final lectureData = lecture ?? <String, dynamic>{};
-
-    // QR payload: JSON with student_id and lecture_id
-    final qrData = jsonEncode({'student_id': uid, 'lecture_id': lectureId});
 
     final sessionTitle =
         (lectureData['practical_sessions']
             as Map<String, dynamic>?)?['title'] ??
         'جلسة عملية';
 
+    final eventTitle = _eventType == StudentAttendanceEventType.checkIn
+        ? 'إرسال تسجيل الدخول'
+        : 'إرسال تسجيل الخروج';
+
+    final eventHelp = _eventType == StudentAttendanceEventType.checkIn
+        ? 'اضغط بدء الإرسال ثم اقترب من جهاز المقيم لتسجيل الدخول'
+        : 'اضغط بدء الإرسال ثم اقترب من جهاز المقيم لتسجيل الخروج';
+
     return WillPopScope(
       onWillPop: () async {
+        await _stopAdvertising();
         _goBack(context, lecture);
         return false;
       },
@@ -139,9 +251,13 @@ class QrScreen extends ConsumerWidget {
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded),
-            onPressed: () => _goBack(context, lecture),
+            onPressed: () async {
+              await _stopAdvertising();
+              if (!mounted || !context.mounted) return;
+              _goBack(context, lecture);
+            },
           ),
-          title: const Text('رمز الحضور'),
+          title: Text(eventTitle),
         ),
         body: Center(
           child: Padding(
@@ -162,22 +278,64 @@ class QrScreen extends ConsumerWidget {
                 ),
                 const Gap(24),
                 Container(
-                  padding: const EdgeInsets.all(16),
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.08),
-                        blurRadius: 20,
-                        spreadRadius: 2,
+                    border: Border.all(
+                      color: Theme.of(
+                        context,
+                      ).dividerColor.withValues(alpha: 0.25),
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(
+                        _isAdvertising
+                            ? Icons.bluetooth_connected_rounded
+                            : Icons.bluetooth_rounded,
+                        size: 72,
+                        color: _isAdvertising
+                            ? Colors.green
+                            : Theme.of(context).colorScheme.primary,
+                      ),
+                      const Gap(12),
+                      Text(
+                        _isAdvertising ? 'يتم الإرسال الآن' : eventHelp,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      if (_status != null) ...[
+                        const Gap(10),
+                        Text(
+                          _status!,
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ],
+                      const Gap(16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _isBusy
+                              ? null
+                              : (_isAdvertising
+                                    ? _stopAdvertising
+                                    : _startAdvertising),
+                          icon: Icon(
+                            _isAdvertising
+                                ? Icons.stop_circle_outlined
+                                : Icons.play_arrow_rounded,
+                          ),
+                          label: Text(
+                            _isAdvertising ? 'إيقاف الإرسال' : 'بدء الإرسال',
+                          ),
+                        ),
                       ),
                     ],
-                  ),
-                  child: QrImageView(
-                    data: qrData,
-                    size: 240,
-                    version: QrVersions.auto,
                   ),
                 ),
               ],

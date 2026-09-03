@@ -10,6 +10,7 @@ import 'package:gap/gap.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:stagelink_student/core/utils/app_error_message.dart';
+import '../../../core/services/ble_attendance_codec.dart';
 import '../../../core/theme/app_theme.dart';
 
 Future<void> _cacheQrLecturesLocally(List assignments) async {
@@ -43,7 +44,7 @@ Future<List<Map<String, dynamic>>> _fetchPracticalSessionsRemote({
       .eq('student_id', uid);
   final assignments = List<Map<String, dynamic>>.from(assignmentsRes as List);
 
-  // Cache lecture payloads locally so QR screen can still work offline.
+  // Cache lecture payloads locally so attendance screen can still work offline.
   await _cacheQrLecturesLocally(assignments);
 
   // Map: session_id -> assignment
@@ -55,23 +56,40 @@ Future<List<Map<String, dynamic>>> _fetchPracticalSessionsRemote({
     assignMap[sessionId] = a;
   }
 
-  // Get attended lectures
+  // Get attendance state for each lecture (check-in/check-out)
   final attendance = await Supabase.instance.client
       .from('practical_attendance')
-      .select('lecture_id')
+      .select('lecture_id, check_in_at, check_out_at')
       .eq('student_id', uid);
-  final attendedIds = Set<String>.from(
-    (attendance as List).map((a) => a['lecture_id'] as String),
-  );
+  final attendanceMap = <String, Map<String, dynamic>>{};
+  for (final row in (attendance as List)) {
+    final map = Map<String, dynamic>.from(row as Map);
+    final lectureId = map['lecture_id'] as String?;
+    if (lectureId == null) continue;
+    attendanceMap[lectureId] = map;
+  }
 
   final result = (sessions as List).map((s) {
     final session = Map<String, dynamic>.from(s as Map);
     final assign = assignMap[session['id'] as String];
+    final lectureId = assign?['lecture_id'] as String?;
+    final attendanceRow = lectureId == null ? null : attendanceMap[lectureId];
+
+    String attendanceState;
+    if (assign == null) {
+      attendanceState = 'unassigned';
+    } else if (attendanceRow == null || attendanceRow['check_in_at'] == null) {
+      attendanceState = 'pending_check_in';
+    } else if (attendanceRow['check_out_at'] == null) {
+      attendanceState = 'pending_check_out';
+    } else {
+      attendanceState = 'completed';
+    }
+
     return {
       ...session,
       'assignment': assign,
-      'is_attended':
-          assign != null && attendedIds.contains(assign['lecture_id']),
+      'attendance_state': attendanceState,
     };
   }).toList();
 
@@ -145,6 +163,7 @@ class PracticalSessionsScreen extends ConsumerWidget {
     required String lectureId,
     required Map<String, dynamic> lecture,
     required String sessionTitle,
+    required StudentAttendanceEventType eventType,
   }) async {
     final seedMap = _buildQrSeed(lecture, sessionTitle);
     final seedJson = jsonEncode(seedMap);
@@ -156,7 +175,7 @@ class PracticalSessionsScreen extends ConsumerWidget {
     final seedEncoded = Uri.encodeComponent(seedJson);
     if (!context.mounted) return;
     context.go(
-      '/practical/qr/$lectureId?subjectId=$subjectId&seed=$seedEncoded',
+      '/practical/qr/$lectureId?subjectId=$subjectId&seed=$seedEncoded&eventType=${eventType.name}',
     );
   }
 
@@ -222,7 +241,11 @@ class PracticalSessionsScreen extends ConsumerWidget {
                   itemBuilder: (context, i) {
                     final s = sessions[i];
                     final assignment = s['assignment'] as Map<String, dynamic>?;
-                    final isAttended = s['is_attended'] as bool;
+                    final attendanceState =
+                        s['attendance_state'] as String? ?? 'pending_check_in';
+                    final isCompleted = attendanceState == 'completed';
+                    final needsCheckOut =
+                        attendanceState == 'pending_check_out';
                     final muted = Theme.of(
                       context,
                     ).colorScheme.onSurface.withValues(alpha: 0.6);
@@ -230,10 +253,14 @@ class PracticalSessionsScreen extends ConsumerWidget {
                     Color statusColor;
                     String statusText;
                     IconData statusIcon;
-                    if (isAttended) {
+                    if (isCompleted) {
                       statusColor = AppColors.success;
                       statusText = 'حاضر ✓';
                       statusIcon = Icons.check_circle_rounded;
+                    } else if (needsCheckOut) {
+                      statusColor = AppColors.primary;
+                      statusText = 'تم تسجيل الدخول';
+                      statusIcon = Icons.login_rounded;
                     } else if (assignment != null) {
                       statusColor = AppColors.warning;
                       statusText = 'مسجّل';
@@ -347,7 +374,7 @@ class PracticalSessionsScreen extends ConsumerWidget {
                                   ),
                                 ],
                               ),
-                              if (!isAttended) ...[
+                              if (!isCompleted) ...[
                                 const Gap(10),
                                 SizedBox(
                                   width: double.infinity,
@@ -359,9 +386,20 @@ class PracticalSessionsScreen extends ConsumerWidget {
                                           assignment!['lecture_id'] as String,
                                       lecture: lecture,
                                       sessionTitle: s['title'] as String,
+                                      eventType: needsCheckOut
+                                          ? StudentAttendanceEventType.checkOut
+                                          : StudentAttendanceEventType.checkIn,
                                     ),
-                                    icon: const Icon(Icons.qr_code_rounded),
-                                    label: const Text('عرض رمز QR للحضور'),
+                                    icon: Icon(
+                                      needsCheckOut
+                                          ? Icons.logout_rounded
+                                          : Icons.login_rounded,
+                                    ),
+                                    label: Text(
+                                      needsCheckOut
+                                          ? 'إرسال تسجيل خروج عبر BLE'
+                                          : 'إرسال تسجيل دخول عبر BLE',
+                                    ),
                                   ),
                                 ),
                               ],

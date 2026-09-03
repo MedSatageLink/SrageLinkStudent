@@ -43,7 +43,7 @@ dependencies:
   shimmer: ^3.0.0
   gap: ^3.0.1
   cached_network_image: ^3.4.1
-  qr_flutter: ^4.1.0
+  flutter_ble_peripheral: ^3.1.0
   percent_indicator: ^4.2.4
   # YouTube player
   youtube_player_flutter: ^9.1.1
@@ -64,6 +64,10 @@ dev_dependencies:
   riverpod_generator: ^2.6.4
   custom_lint: ^0.7.5
   riverpod_lint: ^2.6.4
+
+dependency_overrides:
+  app_links: 6.4.1
+  sqflite_android: 2.4.1
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

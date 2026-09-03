@@ -4,6 +4,7 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   app_links
+  flutter_ble_peripheral
   flutter_inappwebview_windows
   flutter_secure_storage_windows
   local_auth_windows
