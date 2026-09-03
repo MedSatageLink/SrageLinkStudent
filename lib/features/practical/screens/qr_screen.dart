@@ -205,6 +205,10 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       );
 
       final advertiseData = AdvertiseDataCore(
+        serviceUuids: BleAttendanceCodec.buildServiceUuids(
+          studentId: uid,
+          eventType: _eventType,
+        ),
         manufacturerId: BleAttendanceCodec.manufacturerId,
         manufacturerData: payload,
       );
