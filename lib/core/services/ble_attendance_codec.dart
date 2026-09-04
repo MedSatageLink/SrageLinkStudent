@@ -3,16 +3,12 @@ import 'dart:typed_data';
 class BleAttendanceCodec {
   static const int manufacturerId = 0x1234;
 
-  static Uint8List buildManufacturerData({
-    required String studentId,
-  }) {
+  static Uint8List buildManufacturerData({required String studentId}) {
     final studentBytes = _uuidToBytes(studentId);
     return Uint8List.fromList(<int>[1, ...studentBytes]);
   }
 
-  static List<String> buildServiceUuids({
-    required String studentId,
-  }) {
+  static List<String> buildServiceUuids({required String studentId}) {
     return <String>[normalizeUuid(studentId)];
   }
 

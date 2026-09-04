@@ -10,6 +10,9 @@ import 'package:gap/gap.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/services/ble_attendance_codec.dart';
+import 'practical_sessions_screen.dart';
+
+enum _AttendanceProbeTarget { checkIn, checkOut, none }
 
 final qrLectureProvider = FutureProvider.family<Map<String, dynamic>?, String>((
   ref,
@@ -78,6 +81,8 @@ class _QrScreenState extends ConsumerState<QrScreen> {
   bool _isAdvertising = false;
   bool _isBusy = false;
   String? _status;
+  Timer? _attendancePollTimer;
+  bool _attendanceProbeInFlight = false;
 
   void _log(String message) {
     if (!_bleDebug) return;
@@ -216,13 +221,11 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       }
 
       final uid = Supabase.instance.client.auth.currentUser!.id;
+      final probeTarget = await _resolveProbeTarget(uid);
+      _log('attendance probe target=$probeTarget');
       _log('current user id=$uid');
-      final payload = BleAttendanceCodec.buildManufacturerData(
-        studentId: uid,
-      );
-      final serviceUuids = BleAttendanceCodec.buildServiceUuids(
-        studentId: uid,
-      );
+      final payload = BleAttendanceCodec.buildManufacturerData(studentId: uid);
+      final serviceUuids = BleAttendanceCodec.buildServiceUuids(studentId: uid);
       _log('payload len=${payload.length} hex=${_hex(payload)}');
       _log('serviceUuids=$serviceUuids');
 
@@ -287,6 +290,10 @@ class _QrScreenState extends ConsumerState<QrScreen> {
             ? 'تم بدء الإرسال بنجاح، قم بتقريب جهازك من جهاز المقيم'
             : 'تعذر بدء الإرسال، تحقق من البلوتوث والصلاحيات';
       });
+
+      if (started) {
+        _startAttendancePolling(studentId: uid, probeTarget: probeTarget);
+      }
     } catch (e, st) {
       _log('start sending exception: $e');
       _log('stacktrace: $st');
@@ -302,6 +309,7 @@ class _QrScreenState extends ConsumerState<QrScreen> {
 
   Future<void> _stopAdvertising() async {
     _log('stop sending requested');
+    _cancelAttendancePolling();
     try {
       await _peripheral.stop();
       _log('peripheral.stop completed');
@@ -312,8 +320,116 @@ class _QrScreenState extends ConsumerState<QrScreen> {
 
   @override
   void dispose() {
+    _cancelAttendancePolling();
     unawaited(_stopAdvertising());
     super.dispose();
+  }
+
+  Future<_AttendanceProbeTarget> _resolveProbeTarget(String studentId) async {
+    try {
+      final row = await _fetchAttendanceRow(studentId);
+      if (row == null) return _AttendanceProbeTarget.checkIn;
+
+      final hasCheckIn = row['check_in_at'] != null;
+      final hasCheckOut = row['check_out_at'] != null;
+
+      if (!hasCheckIn) return _AttendanceProbeTarget.checkIn;
+      if (!hasCheckOut) return _AttendanceProbeTarget.checkOut;
+      return _AttendanceProbeTarget.none;
+    } catch (e) {
+      _log('resolve probe target failed, fallback to checkIn: $e');
+      return _AttendanceProbeTarget.checkIn;
+    }
+  }
+
+  Future<Map<String, dynamic>?> _fetchAttendanceRow(String studentId) async {
+    final res = await Supabase.instance.client
+        .from('practical_attendance')
+        .select('id, check_in_at, check_out_at')
+        .eq('lecture_id', widget.lectureId)
+        .eq('student_id', studentId)
+        .maybeSingle();
+    if (res == null) return null;
+    return Map<String, dynamic>.from(res);
+  }
+
+  void _startAttendancePolling({
+    required String studentId,
+    required _AttendanceProbeTarget probeTarget,
+  }) {
+    _cancelAttendancePolling();
+    if (probeTarget == _AttendanceProbeTarget.none) {
+      _log('attendance already completed (check-in + check-out)');
+      return;
+    }
+
+    _attendancePollTimer = Timer(const Duration(seconds: 2), () async {
+      final done = await _checkAttendanceProbe(
+        studentId: studentId,
+        target: probeTarget,
+      );
+      if (done || !mounted || !_isAdvertising) return;
+
+      _attendancePollTimer = Timer.periodic(const Duration(seconds: 5), (
+        timer,
+      ) async {
+        final confirmed = await _checkAttendanceProbe(
+          studentId: studentId,
+          target: probeTarget,
+        );
+        if (confirmed || !mounted || !_isAdvertising) {
+          timer.cancel();
+          if (identical(_attendancePollTimer, timer)) {
+            _attendancePollTimer = null;
+          }
+        }
+      });
+    });
+  }
+
+  Future<bool> _checkAttendanceProbe({
+    required String studentId,
+    required _AttendanceProbeTarget target,
+  }) async {
+    if (_attendanceProbeInFlight) return false;
+    _attendanceProbeInFlight = true;
+    try {
+      final row = await _fetchAttendanceRow(studentId);
+      final hasCheckIn = row?['check_in_at'] != null;
+      final hasCheckOut = row?['check_out_at'] != null;
+
+      final matched =
+          (target == _AttendanceProbeTarget.checkIn && hasCheckIn) ||
+          (target == _AttendanceProbeTarget.checkOut && hasCheckOut);
+
+      if (!matched) {
+        _log('attendance probe: not confirmed yet for target=$target');
+        return false;
+      }
+
+      if (!mounted) return true;
+      setState(() {
+        _status = target == _AttendanceProbeTarget.checkIn
+            ? 'تم تأكيد تسجيل الدخول ✓'
+            : 'تم تأكيد تسجيل الخروج ✓';
+      });
+
+      if (widget.subjectId != null && widget.subjectId!.isNotEmpty) {
+        ref.invalidate(practicalSessionsBySubjectProvider(widget.subjectId!));
+      }
+      _cancelAttendancePolling();
+      return true;
+    } catch (e) {
+      _log('attendance probe error: $e');
+      return false;
+    } finally {
+      _attendanceProbeInFlight = false;
+    }
+  }
+
+  void _cancelAttendancePolling() {
+    _attendancePollTimer?.cancel();
+    _attendancePollTimer = null;
   }
 
   @override
@@ -331,7 +447,7 @@ class _QrScreenState extends ConsumerState<QrScreen> {
 
     const eventTitle = 'إرسال الحضور عبر BLE';
     const eventHelp =
-      'اضغط بدء الإرسال ثم اقترب من جهاز المقيم. المقيم هو من يحدد تسجيل الدخول أو الخروج';
+        'اضغط بدء الإرسال ثم اقترب من جهاز المقيم. المقيم هو من يحدد تسجيل الدخول أو الخروج';
 
     return WillPopScope(
       onWillPop: () async {

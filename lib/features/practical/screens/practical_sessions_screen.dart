@@ -77,8 +77,12 @@ Future<List<Map<String, dynamic>>> _fetchPracticalSessionsRemote({
     final hasCheckOut = attendanceRow?['check_out_at'] != null;
     int? spentMinutes;
     if (hasCheckIn && hasCheckOut) {
-      final checkIn = DateTime.tryParse(attendanceRow!['check_in_at'] as String);
-      final checkOut = DateTime.tryParse(attendanceRow['check_out_at'] as String);
+      final checkIn = DateTime.tryParse(
+        attendanceRow!['check_in_at'] as String,
+      );
+      final checkOut = DateTime.tryParse(
+        attendanceRow['check_out_at'] as String,
+      );
       if (checkIn != null && checkOut != null && checkOut.isAfter(checkIn)) {
         spentMinutes = checkOut.difference(checkIn).inMinutes;
       }
@@ -185,7 +189,9 @@ class PracticalSessionsScreen extends ConsumerWidget {
 
     final seedEncoded = Uri.encodeComponent(seedJson);
     if (!context.mounted) return;
-    context.go('/practical/qr/$lectureId?subjectId=$subjectId&seed=$seedEncoded');
+    context.go(
+      '/practical/qr/$lectureId?subjectId=$subjectId&seed=$seedEncoded',
+    );
   }
 
   String _formatDuration(int mins) {
@@ -252,7 +258,9 @@ class PracticalSessionsScreen extends ConsumerWidget {
               ? const Center(child: Text('لا توجد جلسات'))
               : RefreshIndicator(
                   onRefresh: () async {
-                    ref.invalidate(practicalSessionsBySubjectProvider(subjectId));
+                    ref.invalidate(
+                      practicalSessionsBySubjectProvider(subjectId),
+                    );
                     await ref.read(
                       practicalSessionsBySubjectProvider(subjectId).future,
                     );
@@ -264,172 +272,175 @@ class PracticalSessionsScreen extends ConsumerWidget {
                     ),
                     itemCount: sessions.length,
                     itemBuilder: (context, i) {
-                    final s = sessions[i];
-                    final assignment = s['assignment'] as Map<String, dynamic>?;
-                    final attendanceState =
-                        s['attendance_state'] as String? ?? 'pending_check_in';
-                    final isCompleted = attendanceState == 'completed';
-                    final hasCheckIn = (s['has_check_in'] as bool?) ?? false;
-                    final hasCheckOut = (s['has_check_out'] as bool?) ?? false;
-                    final spentMinutes = s['spent_minutes'] as int?;
-                    final muted = Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.6);
+                      final s = sessions[i];
+                      final assignment =
+                          s['assignment'] as Map<String, dynamic>?;
+                      final attendanceState =
+                          s['attendance_state'] as String? ??
+                          'pending_check_in';
+                      final isCompleted = attendanceState == 'completed';
+                      final hasCheckIn = (s['has_check_in'] as bool?) ?? false;
+                      final hasCheckOut =
+                          (s['has_check_out'] as bool?) ?? false;
+                      final spentMinutes = s['spent_minutes'] as int?;
+                      final muted = Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.6);
 
-                    Color statusColor;
-                    String statusText;
-                    IconData statusIcon;
-                    if (isCompleted) {
-                      statusColor = AppColors.success;
-                      statusText = 'حاضر ✓';
-                      statusIcon = Icons.check_circle_rounded;
-                    } else if (hasCheckIn) {
-                      statusColor = AppColors.primary;
-                      statusText = 'تم تسجيل الدخول';
-                      statusIcon = Icons.login_rounded;
-                    } else if (assignment != null) {
-                      statusColor = AppColors.warning;
-                      statusText = 'مسجّل';
-                      statusIcon = Icons.schedule_rounded;
-                    } else {
-                      statusColor = muted;
-                      statusText = 'غير مسجّل';
-                      statusIcon = Icons.help_outline_rounded;
-                    }
+                      Color statusColor;
+                      String statusText;
+                      IconData statusIcon;
+                      if (isCompleted) {
+                        statusColor = AppColors.success;
+                        statusText = 'حاضر ✓';
+                        statusIcon = Icons.check_circle_rounded;
+                      } else if (hasCheckIn) {
+                        statusColor = AppColors.primary;
+                        statusText = 'تم تسجيل الدخول';
+                        statusIcon = Icons.login_rounded;
+                      } else if (assignment != null) {
+                        statusColor = AppColors.warning;
+                        statusText = 'مسجّل';
+                        statusIcon = Icons.schedule_rounded;
+                      } else {
+                        statusColor = muted;
+                        statusText = 'غير مسجّل';
+                        statusIcon = Icons.help_outline_rounded;
+                      }
 
-                    final lecture =
-                        assignment?['lectures'] as Map<String, dynamic>?;
-                    final residentName =
-                        (lecture?['profiles']
-                            as Map<String, dynamic>?)?['full_name'] ??
-                        '';
+                      final lecture =
+                          assignment?['lectures'] as Map<String, dynamic>?;
+                      final residentName =
+                          (lecture?['profiles']
+                              as Map<String, dynamic>?)?['full_name'] ??
+                          '';
 
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 10),
-                      child: Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    s['title'] as String,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.titleMedium,
-                                  ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: statusColor.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        statusIcon,
-                                        size: 14,
-                                        color: statusColor,
-                                      ),
-                                      const Gap(4),
-                                      Text(
-                                        statusText,
-                                        style: TextStyle(
-                                          color: statusColor,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                            if (lecture != null) ...[
-                              const Gap(8),
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
                               Row(
                                 children: [
-                                  Icon(
-                                    Icons.event_outlined,
-                                    size: 14,
-                                    color: muted,
-                                  ),
-                                  const Gap(4),
-                                  Text(
-                                    _formatLectureLine(lecture),
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.bodyMedium,
-                                  ),
-                                ],
-                              ),
-                              const Gap(4),
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.location_on_outlined,
-                                    size: 14,
-                                    color: muted,
-                                  ),
-                                  const Gap(4),
-                                  Text(
-                                    '${lecture['location']}',
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.bodyMedium,
-                                  ),
-                                  const Gap(8),
-                                  Icon(
-                                    Icons.person_outline,
-                                    size: 14,
-                                    color: muted,
-                                  ),
-                                  const Gap(4),
-                                  Text(
-                                    residentName,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.bodyMedium,
-                                  ),
-                                ],
-                              ),
-                              const Gap(8),
-                              Text(
-                                'الدخول: ${hasCheckIn ? 'نعم' : 'لا'}   •   الخروج: ${hasCheckOut ? 'نعم' : 'لا'}   •   المدة: ${_formatSpentMinutes(spentMinutes)}',
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                              if (!isCompleted) ...[
-                                const Gap(10),
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: ElevatedButton.icon(
-                                    onPressed: () => _openQr(
-                                      context,
-                                      subjectId: subjectId,
-                                      lectureId:
-                                          assignment!['lecture_id'] as String,
-                                      lecture: lecture,
-                                      sessionTitle: s['title'] as String,
+                                  Expanded(
+                                    child: Text(
+                                      s['title'] as String,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.titleMedium,
                                     ),
-                                    icon: const Icon(Icons.send_rounded),
-                                    label: const Text('بدء الإرسال عبر BLE'),
                                   ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: statusColor.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          statusIcon,
+                                          size: 14,
+                                          color: statusColor,
+                                        ),
+                                        const Gap(4),
+                                        Text(
+                                          statusText,
+                                          style: TextStyle(
+                                            color: statusColor,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (lecture != null) ...[
+                                const Gap(8),
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.event_outlined,
+                                      size: 14,
+                                      color: muted,
+                                    ),
+                                    const Gap(4),
+                                    Text(
+                                      _formatLectureLine(lecture),
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodyMedium,
+                                    ),
+                                  ],
                                 ),
+                                const Gap(4),
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.location_on_outlined,
+                                      size: 14,
+                                      color: muted,
+                                    ),
+                                    const Gap(4),
+                                    Text(
+                                      '${lecture['location']}',
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodyMedium,
+                                    ),
+                                    const Gap(8),
+                                    Icon(
+                                      Icons.person_outline,
+                                      size: 14,
+                                      color: muted,
+                                    ),
+                                    const Gap(4),
+                                    Text(
+                                      residentName,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodyMedium,
+                                    ),
+                                  ],
+                                ),
+                                const Gap(8),
+                                Text(
+                                  'الدخول: ${hasCheckIn ? 'نعم' : 'لا'}   •   الخروج: ${hasCheckOut ? 'نعم' : 'لا'}   •   المدة: ${_formatSpentMinutes(spentMinutes)}',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                                if (!isCompleted) ...[
+                                  const Gap(10),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: ElevatedButton.icon(
+                                      onPressed: () => _openQr(
+                                        context,
+                                        subjectId: subjectId,
+                                        lectureId:
+                                            assignment!['lecture_id'] as String,
+                                        lecture: lecture,
+                                        sessionTitle: s['title'] as String,
+                                      ),
+                                      icon: const Icon(Icons.send_rounded),
+                                      label: const Text('بدء الإرسال عبر BLE'),
+                                    ),
+                                  ),
+                                ],
                               ],
                             ],
-                          ],
+                          ),
                         ),
-                      ),
-                    ).animate(delay: (40 * i).ms).fadeIn();
-                  },
-                ),
+                      ).animate(delay: (40 * i).ms).fadeIn();
+                    },
+                  ),
                 ),
         ),
       ),
