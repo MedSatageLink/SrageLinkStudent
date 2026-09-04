@@ -23,10 +23,12 @@ class BleAttendanceCodec {
     required StudentAttendanceEventType eventType,
   }) {
     return <String>[
+      // Student UUID first: some scanners/platforms only expose one UUID.
+      // Keeping student first maximizes the chance we can identify the user.
+      normalizeUuid(studentId),
       eventType == StudentAttendanceEventType.checkIn
           ? _checkInServiceUuid
           : _checkOutServiceUuid,
-      normalizeUuid(studentId),
     ];
   }
 
