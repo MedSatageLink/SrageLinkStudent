@@ -1,35 +1,19 @@
 import 'dart:typed_data';
 
-enum StudentAttendanceEventType { checkIn, checkOut }
-
 class BleAttendanceCodec {
   static const int manufacturerId = 0x1234;
-  static const String _checkInServiceUuid =
-      '0000a101-0000-1000-8000-00805f9b34fb';
-  static const String _checkOutServiceUuid =
-      '0000a102-0000-1000-8000-00805f9b34fb';
 
   static Uint8List buildManufacturerData({
     required String studentId,
-    required StudentAttendanceEventType eventType,
   }) {
     final studentBytes = _uuidToBytes(studentId);
-    final eventByte = eventType == StudentAttendanceEventType.checkIn ? 1 : 2;
-    return Uint8List.fromList(<int>[1, eventByte, ...studentBytes]);
+    return Uint8List.fromList(<int>[1, ...studentBytes]);
   }
 
   static List<String> buildServiceUuids({
     required String studentId,
-    required StudentAttendanceEventType eventType,
   }) {
-    return <String>[
-      // Student UUID first: some scanners/platforms only expose one UUID.
-      // Keeping student first maximizes the chance we can identify the user.
-      normalizeUuid(studentId),
-      eventType == StudentAttendanceEventType.checkIn
-          ? _checkInServiceUuid
-          : _checkOutServiceUuid,
-    ];
+    return <String>[normalizeUuid(studentId)];
   }
 
   static String normalizeUuid(String uuid) {

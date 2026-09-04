@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart';
@@ -59,13 +60,11 @@ class QrScreen extends ConsumerStatefulWidget {
   final String lectureId;
   final String? subjectId;
   final String? seed;
-  final String? eventType;
   const QrScreen({
     super.key,
     required this.lectureId,
     this.subjectId,
     this.seed,
-    this.eventType,
   });
 
   @override
@@ -73,10 +72,26 @@ class QrScreen extends ConsumerStatefulWidget {
 }
 
 class _QrScreenState extends ConsumerState<QrScreen> {
+  static const bool _bleDebug = true;
+
   final FlutterBlePeripheral _peripheral = FlutterBlePeripheral();
   bool _isAdvertising = false;
   bool _isBusy = false;
   String? _status;
+
+  void _log(String message) {
+    if (!_bleDebug) return;
+    debugPrint('[BLE][Sender] $message');
+  }
+
+  String _hex(List<int> bytes, {int maxBytes = 24}) {
+    final view = bytes.length > maxBytes ? bytes.sublist(0, maxBytes) : bytes;
+    final hex = view.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
+    if (bytes.length > maxBytes) {
+      return '$hex ... (+${bytes.length - maxBytes} bytes)';
+    }
+    return hex;
+  }
 
   bool _isGrantedState(PeripheralBluetoothState state) {
     final value = state.toString().toLowerCase();
@@ -87,11 +102,6 @@ class _QrScreenState extends ConsumerState<QrScreen> {
     final value = state.toString().toLowerCase();
     return value.contains('turnedoff') || value.endsWith('.off');
   }
-
-  StudentAttendanceEventType get _eventType =>
-      widget.eventType == StudentAttendanceEventType.checkOut.name
-      ? StudentAttendanceEventType.checkOut
-      : StudentAttendanceEventType.checkIn;
 
   @override
   void initState() {
@@ -149,13 +159,16 @@ class _QrScreenState extends ConsumerState<QrScreen> {
 
   Future<void> _startAdvertising() async {
     if (_isBusy || _isAdvertising) return;
+    _log('start sending pressed: lectureId=${widget.lectureId}');
     setState(() {
       _isBusy = true;
       _status = null;
     });
 
     try {
-      if (!await _peripheral.isSupported) {
+      final isSupported = await _peripheral.isSupported;
+      _log('isSupported=$isSupported');
+      if (!isSupported) {
         setState(() {
           _status = 'الجهاز لا يدعم بث BLE';
           _isBusy = false;
@@ -164,9 +177,11 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       }
 
       var permissionState = await _peripheral.hasPermission();
+      _log('permissionState(before request)=$permissionState');
 
       if (!_isGrantedState(permissionState)) {
         permissionState = await _peripheral.requestPermission();
+        _log('permissionState(after request)=$permissionState');
       }
 
       if (!_isGrantedState(permissionState) &&
@@ -179,7 +194,9 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       }
 
       if (_isTurnedOffState(permissionState)) {
+        _log('bluetooth appears OFF, trying enableBluetooth()');
         final enabled = await _peripheral.enableBluetooth();
+        _log('enableBluetooth result=$enabled');
         if (!enabled) {
           setState(() {
             _status = 'يرجى تفعيل البلوتوث';
@@ -199,23 +216,70 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       }
 
       final uid = Supabase.instance.client.auth.currentUser!.id;
+      _log('current user id=$uid');
       final payload = BleAttendanceCodec.buildManufacturerData(
         studentId: uid,
-        eventType: _eventType,
       );
+      final serviceUuids = BleAttendanceCodec.buildServiceUuids(
+        studentId: uid,
+      );
+      _log('payload len=${payload.length} hex=${_hex(payload)}');
+      _log('serviceUuids=$serviceUuids');
 
       final advertiseData = AdvertiseDataCore(
-        serviceUuids: BleAttendanceCodec.buildServiceUuids(
-          studentId: uid,
-          eventType: _eventType,
-        ),
+        serviceUuids: serviceUuids,
         manufacturerId: BleAttendanceCodec.manufacturerId,
         manufacturerData: payload,
       );
+      final androidServiceData = AndroidAdvertiseData(
+        serviceDataUuid: 'a100',
+        serviceData: payload,
+      );
 
-      await _peripheral.start(advertiseData: advertiseData);
+      final attempts = <({String name, AdvertiseDataCore data})>[
+        (name: 'full payload', data: advertiseData),
+        if (Platform.isAndroid)
+          (name: 'android serviceData payload', data: androidServiceData),
+        (
+          name: 'serviceUuids only',
+          data: AdvertiseDataCore(serviceUuids: serviceUuids),
+        ),
+        (
+          name: 'student UUID only',
+          data: AdvertiseDataCore(
+            serviceUuids: <String>[BleAttendanceCodec.normalizeUuid(uid)],
+          ),
+        ),
+      ];
+
+      Object? lastError;
+      for (var i = 0; i < attempts.length; i++) {
+        final attempt = attempts[i];
+        _log('calling peripheral.start(...) with ${attempt.name}');
+        try {
+          await _peripheral.start(advertiseData: attempt.data);
+          _log('peripheral.start completed (${attempt.name})');
+          lastError = null;
+          break;
+        } catch (e) {
+          lastError = e;
+          final text = e.toString();
+          _log('peripheral.start failed (${attempt.name}): $text');
+          final isTooLarge = text.contains('ADVERTISE_FAILED_DATA_TOO_LARGE');
+          final isLastAttempt = i == attempts.length - 1;
+          if (!isTooLarge || isLastAttempt) {
+            rethrow;
+          }
+          _log('retrying with next fallback due to payload size');
+        }
+      }
+
+      if (lastError != null) {
+        throw lastError;
+      }
 
       final started = await _peripheral.isAdvertising;
+      _log('isAdvertising=$started');
 
       setState(() {
         _isAdvertising = started;
@@ -223,7 +287,9 @@ class _QrScreenState extends ConsumerState<QrScreen> {
             ? 'تم بدء الإرسال بنجاح، قم بتقريب جهازك من جهاز المقيم'
             : 'تعذر بدء الإرسال، تحقق من البلوتوث والصلاحيات';
       });
-    } catch (_) {
+    } catch (e, st) {
+      _log('start sending exception: $e');
+      _log('stacktrace: $st');
       setState(() {
         _status = 'تعذر بدء الإرسال، حاول مجدداً';
       });
@@ -235,8 +301,10 @@ class _QrScreenState extends ConsumerState<QrScreen> {
   }
 
   Future<void> _stopAdvertising() async {
+    _log('stop sending requested');
     try {
       await _peripheral.stop();
+      _log('peripheral.stop completed');
     } catch (_) {}
     if (!mounted) return;
     setState(() => _isAdvertising = false);
@@ -261,13 +329,9 @@ class _QrScreenState extends ConsumerState<QrScreen> {
             as Map<String, dynamic>?)?['title'] ??
         'جلسة عملية';
 
-    final eventTitle = _eventType == StudentAttendanceEventType.checkIn
-        ? 'إرسال تسجيل الدخول'
-        : 'إرسال تسجيل الخروج';
-
-    final eventHelp = _eventType == StudentAttendanceEventType.checkIn
-        ? 'اضغط بدء الإرسال ثم اقترب من جهاز المقيم لتسجيل الدخول'
-        : 'اضغط بدء الإرسال ثم اقترب من جهاز المقيم لتسجيل الخروج';
+    const eventTitle = 'إرسال الحضور عبر BLE';
+    const eventHelp =
+      'اضغط بدء الإرسال ثم اقترب من جهاز المقيم. المقيم هو من يحدد تسجيل الدخول أو الخروج';
 
     return WillPopScope(
       onWillPop: () async {

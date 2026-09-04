@@ -10,7 +10,6 @@ import 'package:gap/gap.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:stagelink_student/core/utils/app_error_message.dart';
-import '../../../core/services/ble_attendance_codec.dart';
 import '../../../core/theme/app_theme.dart';
 
 Future<void> _cacheQrLecturesLocally(List assignments) async {
@@ -74,6 +73,16 @@ Future<List<Map<String, dynamic>>> _fetchPracticalSessionsRemote({
     final assign = assignMap[session['id'] as String];
     final lectureId = assign?['lecture_id'] as String?;
     final attendanceRow = lectureId == null ? null : attendanceMap[lectureId];
+    final hasCheckIn = attendanceRow?['check_in_at'] != null;
+    final hasCheckOut = attendanceRow?['check_out_at'] != null;
+    int? spentMinutes;
+    if (hasCheckIn && hasCheckOut) {
+      final checkIn = DateTime.tryParse(attendanceRow!['check_in_at'] as String);
+      final checkOut = DateTime.tryParse(attendanceRow['check_out_at'] as String);
+      if (checkIn != null && checkOut != null && checkOut.isAfter(checkIn)) {
+        spentMinutes = checkOut.difference(checkIn).inMinutes;
+      }
+    }
 
     String attendanceState;
     if (assign == null) {
@@ -90,6 +99,9 @@ Future<List<Map<String, dynamic>>> _fetchPracticalSessionsRemote({
       ...session,
       'assignment': assign,
       'attendance_state': attendanceState,
+      'has_check_in': hasCheckIn,
+      'has_check_out': hasCheckOut,
+      'spent_minutes': spentMinutes,
     };
   }).toList();
 
@@ -163,7 +175,6 @@ class PracticalSessionsScreen extends ConsumerWidget {
     required String lectureId,
     required Map<String, dynamic> lecture,
     required String sessionTitle,
-    required StudentAttendanceEventType eventType,
   }) async {
     final seedMap = _buildQrSeed(lecture, sessionTitle);
     final seedJson = jsonEncode(seedMap);
@@ -174,9 +185,7 @@ class PracticalSessionsScreen extends ConsumerWidget {
 
     final seedEncoded = Uri.encodeComponent(seedJson);
     if (!context.mounted) return;
-    context.go(
-      '/practical/qr/$lectureId?subjectId=$subjectId&seed=$seedEncoded&eventType=${eventType.name}',
-    );
+    context.go('/practical/qr/$lectureId?subjectId=$subjectId&seed=$seedEncoded');
   }
 
   String _formatDuration(int mins) {
@@ -200,6 +209,15 @@ class PracticalSessionsScreen extends ConsumerWidget {
         : _formatDuration(end.difference(start).inMinutes);
     final durStr = dur.isEmpty ? '' : ' · $dur';
     return '$dateStr · $timeStr · $location$durStr';
+  }
+
+  String _formatSpentMinutes(int? mins) {
+    if (mins == null || mins <= 0) return '—';
+    final h = mins ~/ 60;
+    final m = mins % 60;
+    if (h == 0) return '$m د';
+    if (m == 0) return '$h س';
+    return '$h س $m د';
   }
 
   @override
@@ -232,20 +250,28 @@ class PracticalSessionsScreen extends ConsumerWidget {
           error: (e, _) => Center(child: Text(AppErrorMessage.from(e))),
           data: (sessions) => sessions.isEmpty
               ? const Center(child: Text('لا توجد جلسات'))
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  itemCount: sessions.length,
-                  itemBuilder: (context, i) {
+              : RefreshIndicator(
+                  onRefresh: () async {
+                    ref.invalidate(practicalSessionsBySubjectProvider(subjectId));
+                    await ref.read(
+                      practicalSessionsBySubjectProvider(subjectId).future,
+                    );
+                  },
+                  child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    itemCount: sessions.length,
+                    itemBuilder: (context, i) {
                     final s = sessions[i];
                     final assignment = s['assignment'] as Map<String, dynamic>?;
                     final attendanceState =
                         s['attendance_state'] as String? ?? 'pending_check_in';
                     final isCompleted = attendanceState == 'completed';
-                    final needsCheckOut =
-                        attendanceState == 'pending_check_out';
+                    final hasCheckIn = (s['has_check_in'] as bool?) ?? false;
+                    final hasCheckOut = (s['has_check_out'] as bool?) ?? false;
+                    final spentMinutes = s['spent_minutes'] as int?;
                     final muted = Theme.of(
                       context,
                     ).colorScheme.onSurface.withValues(alpha: 0.6);
@@ -257,7 +283,7 @@ class PracticalSessionsScreen extends ConsumerWidget {
                       statusColor = AppColors.success;
                       statusText = 'حاضر ✓';
                       statusIcon = Icons.check_circle_rounded;
-                    } else if (needsCheckOut) {
+                    } else if (hasCheckIn) {
                       statusColor = AppColors.primary;
                       statusText = 'تم تسجيل الدخول';
                       statusIcon = Icons.login_rounded;
@@ -374,6 +400,11 @@ class PracticalSessionsScreen extends ConsumerWidget {
                                   ),
                                 ],
                               ),
+                              const Gap(8),
+                              Text(
+                                'الدخول: ${hasCheckIn ? 'نعم' : 'لا'}   •   الخروج: ${hasCheckOut ? 'نعم' : 'لا'}   •   المدة: ${_formatSpentMinutes(spentMinutes)}',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
                               if (!isCompleted) ...[
                                 const Gap(10),
                                 SizedBox(
@@ -386,20 +417,9 @@ class PracticalSessionsScreen extends ConsumerWidget {
                                           assignment!['lecture_id'] as String,
                                       lecture: lecture,
                                       sessionTitle: s['title'] as String,
-                                      eventType: needsCheckOut
-                                          ? StudentAttendanceEventType.checkOut
-                                          : StudentAttendanceEventType.checkIn,
                                     ),
-                                    icon: Icon(
-                                      needsCheckOut
-                                          ? Icons.logout_rounded
-                                          : Icons.login_rounded,
-                                    ),
-                                    label: Text(
-                                      needsCheckOut
-                                          ? 'إرسال تسجيل خروج عبر BLE'
-                                          : 'إرسال تسجيل دخول عبر BLE',
-                                    ),
+                                    icon: const Icon(Icons.send_rounded),
+                                    label: const Text('بدء الإرسال عبر BLE'),
                                   ),
                                 ),
                               ],
@@ -409,6 +429,7 @@ class PracticalSessionsScreen extends ConsumerWidget {
                       ),
                     ).animate(delay: (40 * i).ms).fadeIn();
                   },
+                ),
                 ),
         ),
       ),
