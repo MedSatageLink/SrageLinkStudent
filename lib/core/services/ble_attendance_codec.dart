@@ -2,6 +2,9 @@ import 'dart:typed_data';
 
 class BleAttendanceCodec {
   static const int manufacturerId = 0x1234;
+  static const String markerServiceUuidShort = 'a100';
+  static const String markerServiceUuidFull =
+      '0000a100-0000-1000-8000-00805f9b34fb';
 
   static Uint8List buildManufacturerData({required String studentId}) {
     final studentBytes = _uuidToBytes(studentId);
@@ -9,7 +12,7 @@ class BleAttendanceCodec {
   }
 
   static List<String> buildServiceUuids({required String studentId}) {
-    return <String>[normalizeUuid(studentId)];
+    return <String>[markerServiceUuidShort, normalizeUuid(studentId)];
   }
 
   static String normalizeUuid(String uuid) {

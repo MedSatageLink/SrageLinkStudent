@@ -38,7 +38,7 @@ Future<List<Map<String, dynamic>>> _fetchPracticalSessionsRemote({
   final assignmentsRes = await Supabase.instance.client
       .from('lecture_assignments')
       .select(
-        'lecture_id, lectures(id, practical_session_id, start_at, end_at, location, attendance_window_start, attendance_window_end, profiles(full_name))',
+        'lecture_id, lectures(id, practical_session_id, start_at, end_at, location, attendance_window_start, attendance_window_end)',
       )
       .eq('student_id', uid);
   final assignments = List<Map<String, dynamic>>.from(assignmentsRes as List);
@@ -143,11 +143,6 @@ final practicalSessionsBySubjectProvider =
       final uid = Supabase.instance.client.auth.currentUser!.id;
       final cached = await _readPracticalSessionsCache(subjectId);
       if (cached != null) {
-        unawaited(
-          _fetchPracticalSessionsRemote(uid: uid, subjectId: subjectId)
-              .then((fresh) => _writePracticalSessionsCache(subjectId, fresh))
-              .catchError((_) {}),
-        );
         return cached;
       }
 
@@ -159,9 +154,34 @@ final practicalSessionsBySubjectProvider =
       return fresh;
     });
 
-class PracticalSessionsScreen extends ConsumerWidget {
+class PracticalSessionsScreen extends ConsumerStatefulWidget {
   final String subjectId;
   const PracticalSessionsScreen({super.key, required this.subjectId});
+
+  @override
+  ConsumerState<PracticalSessionsScreen> createState() =>
+      _PracticalSessionsScreenState();
+}
+
+class _PracticalSessionsScreenState extends ConsumerState<PracticalSessionsScreen> {
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_refreshInBackgroundOnce());
+  }
+
+  Future<void> _refreshInBackgroundOnce() async {
+    try {
+      final uid = Supabase.instance.client.auth.currentUser!.id;
+      final fresh = await _fetchPracticalSessionsRemote(
+        uid: uid,
+        subjectId: widget.subjectId,
+      );
+      await _writePracticalSessionsCache(widget.subjectId, fresh);
+      if (!mounted) return;
+      ref.invalidate(practicalSessionsBySubjectProvider(widget.subjectId));
+    } catch (_) {}
+  }
 
   Map<String, dynamic> _buildQrSeed(
     Map<String, dynamic> lecture,
@@ -227,9 +247,9 @@ class PracticalSessionsScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final sessionsAsync = ref.watch(
-      practicalSessionsBySubjectProvider(subjectId),
+      practicalSessionsBySubjectProvider(widget.subjectId),
     );
     return WillPopScope(
       onWillPop: () async {
@@ -241,7 +261,7 @@ class PracticalSessionsScreen extends ConsumerWidget {
           leading: IconButton(
             icon: const Icon(Icons.ondemand_video_rounded),
             tooltip: 'فيديوهات اختيارية',
-            onPressed: () => context.go('/practical/videos/$subjectId'),
+            onPressed: () => context.go('/practical/videos/${widget.subjectId}'),
           ),
           title: const Text('جلساتي العملية'),
           actions: [
@@ -259,10 +279,10 @@ class PracticalSessionsScreen extends ConsumerWidget {
               : RefreshIndicator(
                   onRefresh: () async {
                     ref.invalidate(
-                      practicalSessionsBySubjectProvider(subjectId),
+                      practicalSessionsBySubjectProvider(widget.subjectId),
                     );
                     await ref.read(
-                      practicalSessionsBySubjectProvider(subjectId).future,
+                      practicalSessionsBySubjectProvider(widget.subjectId).future,
                     );
                   },
                   child: ListView.builder(
@@ -310,10 +330,6 @@ class PracticalSessionsScreen extends ConsumerWidget {
 
                       final lecture =
                           assignment?['lectures'] as Map<String, dynamic>?;
-                      final residentName =
-                          (lecture?['profiles']
-                              as Map<String, dynamic>?)?['full_name'] ??
-                          '';
 
                       return Card(
                         margin: const EdgeInsets.only(bottom: 10),
@@ -396,19 +412,6 @@ class PracticalSessionsScreen extends ConsumerWidget {
                                         context,
                                       ).textTheme.bodyMedium,
                                     ),
-                                    const Gap(8),
-                                    Icon(
-                                      Icons.person_outline,
-                                      size: 14,
-                                      color: muted,
-                                    ),
-                                    const Gap(4),
-                                    Text(
-                                      residentName,
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.bodyMedium,
-                                    ),
                                   ],
                                 ),
                                 const Gap(8),
@@ -423,7 +426,7 @@ class PracticalSessionsScreen extends ConsumerWidget {
                                     child: ElevatedButton.icon(
                                       onPressed: () => _openQr(
                                         context,
-                                        subjectId: subjectId,
+                                        subjectId: widget.subjectId,
                                         lectureId:
                                             assignment!['lecture_id'] as String,
                                         lecture: lecture,

@@ -235,7 +235,7 @@ class _QrScreenState extends ConsumerState<QrScreen> {
         manufacturerData: payload,
       );
       final androidServiceData = AndroidAdvertiseData(
-        serviceDataUuid: 'a100',
+        serviceDataUuid: BleAttendanceCodec.markerServiceUuidShort,
         serviceData: payload,
       );
 
@@ -246,12 +246,6 @@ class _QrScreenState extends ConsumerState<QrScreen> {
         (
           name: 'serviceUuids only',
           data: AdvertiseDataCore(serviceUuids: serviceUuids),
-        ),
-        (
-          name: 'student UUID only',
-          data: AdvertiseDataCore(
-            serviceUuids: <String>[BleAttendanceCodec.normalizeUuid(uid)],
-          ),
         ),
       ];
 
@@ -353,6 +347,71 @@ class _QrScreenState extends ConsumerState<QrScreen> {
     return Map<String, dynamic>.from(res);
   }
 
+  Future<void> _updateLocalSessionAttendanceCache({
+    required String subjectId,
+    required Map<String, dynamic>? attendanceRow,
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'practical_sessions_subject_$subjectId';
+      final raw = prefs.getString(key);
+      if (raw == null) return;
+
+      final list = List<Map<String, dynamic>>.from(
+        (jsonDecode(raw) as List).cast<Map<String, dynamic>>(),
+      );
+
+      bool changed = false;
+      for (final item in list) {
+        final assignment = item['assignment'] as Map<String, dynamic>?;
+        final lectureId = assignment?['lecture_id'] as String?;
+        if (lectureId != widget.lectureId) continue;
+
+        final hasCheckIn = attendanceRow?['check_in_at'] != null;
+        final hasCheckOut = attendanceRow?['check_out_at'] != null;
+
+        int? spentMinutes;
+        if (hasCheckIn && hasCheckOut) {
+          final checkIn = DateTime.tryParse(
+            attendanceRow!['check_in_at'] as String,
+          );
+          final checkOut = DateTime.tryParse(
+            attendanceRow['check_out_at'] as String,
+          );
+          if (checkIn != null &&
+              checkOut != null &&
+              checkOut.isAfter(checkIn)) {
+            spentMinutes = checkOut.difference(checkIn).inMinutes;
+          }
+        }
+
+        String attendanceState;
+        if (assignment == null) {
+          attendanceState = 'unassigned';
+        } else if (!hasCheckIn) {
+          attendanceState = 'pending_check_in';
+        } else if (!hasCheckOut) {
+          attendanceState = 'pending_check_out';
+        } else {
+          attendanceState = 'completed';
+        }
+
+        item['has_check_in'] = hasCheckIn;
+        item['has_check_out'] = hasCheckOut;
+        item['spent_minutes'] = spentMinutes;
+        item['attendance_state'] = attendanceState;
+        changed = true;
+        break;
+      }
+
+      if (!changed) return;
+      await prefs.setString(key, jsonEncode(list));
+      _log('local sessions cache updated for lectureId=${widget.lectureId}');
+    } catch (e) {
+      _log('local sessions cache update failed: $e');
+    }
+  }
+
   void _startAttendancePolling({
     required String studentId,
     required _AttendanceProbeTarget probeTarget,
@@ -407,6 +466,14 @@ class _QrScreenState extends ConsumerState<QrScreen> {
         return false;
       }
 
+      final sid = widget.subjectId;
+      if (sid != null && sid.isNotEmpty) {
+        await _updateLocalSessionAttendanceCache(
+          subjectId: sid,
+          attendanceRow: row,
+        );
+      }
+
       if (!mounted) return true;
       setState(() {
         _status = target == _AttendanceProbeTarget.checkIn
@@ -414,10 +481,14 @@ class _QrScreenState extends ConsumerState<QrScreen> {
             : 'تم تأكيد تسجيل الخروج ✓';
       });
 
-      if (widget.subjectId != null && widget.subjectId!.isNotEmpty) {
-        ref.invalidate(practicalSessionsBySubjectProvider(widget.subjectId!));
+      if (sid != null && sid.isNotEmpty) {
+        ref.invalidate(practicalSessionsBySubjectProvider(sid));
       }
       _cancelAttendancePolling();
+
+      await _stopAdvertising();
+      if (!mounted || !context.mounted) return true;
+      _goBack(context, null);
       return true;
     } catch (e) {
       _log('attendance probe error: $e');
