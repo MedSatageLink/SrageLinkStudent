@@ -163,7 +163,8 @@ class PracticalSessionsScreen extends ConsumerStatefulWidget {
       _PracticalSessionsScreenState();
 }
 
-class _PracticalSessionsScreenState extends ConsumerState<PracticalSessionsScreen> {
+class _PracticalSessionsScreenState
+    extends ConsumerState<PracticalSessionsScreen> {
   @override
   void initState() {
     super.initState();
@@ -261,7 +262,8 @@ class _PracticalSessionsScreenState extends ConsumerState<PracticalSessionsScree
           leading: IconButton(
             icon: const Icon(Icons.ondemand_video_rounded),
             tooltip: 'فيديوهات اختيارية',
-            onPressed: () => context.go('/practical/videos/${widget.subjectId}'),
+            onPressed: () =>
+                context.go('/practical/videos/${widget.subjectId}'),
           ),
           title: const Text('جلساتي العملية'),
           actions: [
@@ -282,7 +284,9 @@ class _PracticalSessionsScreenState extends ConsumerState<PracticalSessionsScree
                       practicalSessionsBySubjectProvider(widget.subjectId),
                     );
                     await ref.read(
-                      practicalSessionsBySubjectProvider(widget.subjectId).future,
+                      practicalSessionsBySubjectProvider(
+                        widget.subjectId,
+                      ).future,
                     );
                   },
                   child: ListView.builder(
