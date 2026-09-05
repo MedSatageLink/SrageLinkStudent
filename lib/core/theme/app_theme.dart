@@ -385,7 +385,7 @@ class AppTheme {
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        backgroundColor: AppColors.textPrimary,
+        backgroundColor: AppColors.surfaceVariant,
         contentTextStyle: GoogleFonts.cairo(color: Colors.white, fontSize: 14),
       ),
     );
