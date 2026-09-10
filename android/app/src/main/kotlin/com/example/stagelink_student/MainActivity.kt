@@ -1,4 +1,4 @@
-package com.example.stagelink_student
+package com.stagelink.student
 
 import io.flutter.embedding.android.FlutterActivity
 
