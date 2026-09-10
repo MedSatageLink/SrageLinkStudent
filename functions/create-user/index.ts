@@ -53,6 +53,7 @@ Deno.serve(async (req: Request) => {
       username,
       full_name,
       university_id,
+      gender,
       role,          // "student" | "resident" | "mini_admin" (never "admin")
       category_id,   // required for student
       order_number,  // required for student
@@ -84,6 +85,10 @@ Deno.serve(async (req: Request) => {
       return json({ error: "category_id is required for students" }, 400);
     }
 
+    if (role === "student" && !["male", "female"].includes(String(gender))) {
+      return json({ error: "gender is required for students and must be 'male' or 'female'" }, 400);
+    }
+
     if ((role === "resident" || role === "mini_admin") && !subject_id) {
       return json({ error: "subject_id is required for residents and mini_admin" }, 400);
     }
@@ -112,6 +117,7 @@ Deno.serve(async (req: Request) => {
         username: normalizedUsername,
         full_name,
         university_id: role === "student" ? university_id : null,
+        gender: role === "student" ? gender : null,
       },
     });
 
@@ -130,6 +136,7 @@ Deno.serve(async (req: Request) => {
     if (role === "student") {
       profileUpdate.category_id  = category_id;
       profileUpdate.order_number = order_number ?? null;
+      profileUpdate.gender = gender;
     }
     if (role === "resident" || role === "mini_admin") {
       profileUpdate.subject_id = subject_id;
