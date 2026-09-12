@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:stagelink_student/core/utils/app_error_message.dart';
@@ -49,13 +48,31 @@ final subjectsByYearProvider =
       ref,
       yearId,
     ) async {
+      List<Map<String, dynamic>> sortSubjects(
+        List<Map<String, dynamic>> input,
+      ) {
+        final list = List<Map<String, dynamic>>.from(input);
+        list.sort((a, b) {
+          final ao = a['rotation_order'] as int?;
+          final bo = b['rotation_order'] as int?;
+          if (ao != null && bo != null) return ao.compareTo(bo);
+          if (ao != null) return -1;
+          if (bo != null) return 1;
+          final an = (a['name'] as String? ?? '').toLowerCase();
+          final bn = (b['name'] as String? ?? '').toLowerCase();
+          return an.compareTo(bn);
+        });
+        return list;
+      }
+
       Future<List<Map<String, dynamic>>> fetchRemote() async {
         final res = await Supabase.instance.client
             .from('subjects')
-            .select('id, name, description')
+            .select('id, name, description, rotation_order, location')
             .eq('year_id', yearId)
+            .order('rotation_order')
             .order('name');
-        return List<Map<String, dynamic>>.from(res as List);
+        return sortSubjects(List<Map<String, dynamic>>.from(res as List));
       }
 
       final prefs = await SharedPreferences.getInstance();
@@ -74,7 +91,7 @@ final subjectsByYearProvider =
               .catchError((_) {}),
         );
 
-        return cachedList;
+        return sortSubjects(cachedList);
       }
 
       final fresh = await fetchRemote();
@@ -82,11 +99,55 @@ final subjectsByYearProvider =
       return fresh;
     });
 
-class StudentHomeScreen extends ConsumerWidget {
+class StudentHomeScreen extends ConsumerStatefulWidget {
   const StudentHomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<StudentHomeScreen> createState() => _StudentHomeScreenState();
+}
+
+class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen>
+    with SingleTickerProviderStateMixin {
+  static const String _homeTabPrefKey = 'student_home_selected_tab_v1';
+  late final TabController _tabController;
+  bool _tabReady = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(_persistSelectedTab);
+    _loadSavedTab();
+  }
+
+  Future<void> _loadSavedTab() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getInt(_homeTabPrefKey) ?? 0;
+    if (saved >= 0 && saved < 2) {
+      _tabController.index = saved;
+    }
+    if (!mounted) return;
+    setState(() => _tabReady = true);
+  }
+
+  Future<void> _persistSelectedTab() async {
+    if (_tabController.indexIsChanging) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_homeTabPrefKey, _tabController.index);
+  }
+
+  @override
+  void dispose() {
+    _tabController.removeListener(_persistSelectedTab);
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_tabReady) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
     final profileAsync = ref.watch(studentProfileProvider);
 
     return profileAsync.when(
@@ -99,78 +160,53 @@ class StudentHomeScreen extends ConsumerWidget {
             (profile['categories'] as Map<String, dynamic>?)?['year_id']
                 as String?;
 
-        return DefaultTabController(
-          length: 2,
-          child: Scaffold(
-            appBar: AppBar(
-              title: const Text('StageLink'),
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.person_outline_rounded),
-                  onPressed: () => context.go('/profile'),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.logout_rounded),
-                  onPressed: () async {
-                    final ok = await showDialog<bool>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('تسجيل الخروج'),
-                        content: const Text('هل أنت متأكد من تسجيل الخروج؟'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx, false),
-                            child: const Text('إلغاء'),
-                          ),
-                          ElevatedButton(
-                            onPressed: () => Navigator.pop(ctx, true),
-                            child: const Text('تأكيد'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (ok == true) {
-                      await Supabase.instance.client.auth.signOut();
-                      if (context.mounted) context.go('/login');
-                    }
-                  },
-                ),
-              ],
-              bottom: const TabBar(
-                tabs: [
-                  Tab(text: 'نظري الستاج'),
-                  Tab(text: 'عملي الستاج'),
-                ],
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('StageLink'),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.person_outline_rounded),
+                onPressed: () => context.go('/profile'),
               ),
+            ],
+            bottom: TabBar(
+              controller: _tabController,
+              tabs: [
+                Tab(text: 'نظري الستاج'),
+                Tab(text: 'عملي الستاج'),
+              ],
             ),
-            body: yearId == null
-                ? const Center(child: Text('لا توجد سنة دراسية مرتبطة'))
-                : TabBarView(
-                    children: [
-                      _SubjectsTab(
-                        yearId: yearId,
-                        emptyText: 'لا توجد ستاجات نظرية',
-                        onTap: (id) => context.go('/theoretical/videos/$id'),
-                        leading: const Icon(
-                          Icons.play_lesson_outlined,
-                          color: AppColors.primary,
-                        ),
-                        leadingBg: AppColors.primaryContainer,
-                      ),
-                      _SubjectsTab(
-                        yearId: yearId,
-                        emptyText: 'لا توجد ستاجات عملية',
-                        onTap: (id) => context.go('/practical/sessions/$id'),
-                        leading: const Icon(
-                          Icons.science_outlined,
-                          color: Color(0xFF059669),
-                        ),
-                        leadingBg: const Color(0xFF059669),
-                        leadingBgOpacity: 0.1,
-                      ),
-                    ],
-                  ),
           ),
+          body: yearId == null
+              ? const Center(child: Text('لا توجد سنة دراسية مرتبطة'))
+              : TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _SubjectsTab(
+                      yearId: yearId,
+                      emptyText: 'لا توجد ستاجات نظرية',
+                      onTap: (id) => context.go('/theoretical/videos/$id'),
+                      leading: const Icon(
+                        Icons.play_lesson_outlined,
+                        color: AppColors.primary,
+                      ),
+                      leadingBg: AppColors.primaryContainer,
+                      showLocation: false,
+                    ),
+                    _SubjectsTab(
+                      yearId: yearId,
+                      emptyText: 'لا توجد ستاجات عملية',
+                      onTap: (id) => context.go('/practical/sessions/$id'),
+                      leading: const Icon(
+                        Icons.science_outlined,
+                        color: Color(0xFF059669),
+                      ),
+                      leadingBg: const Color(0xFF059669),
+                      leadingBgOpacity: 0.1,
+                      showLocation: true,
+                    ),
+                  ],
+                ),
         );
       },
     );
@@ -184,6 +220,7 @@ class _SubjectsTab extends ConsumerWidget {
   final Widget leading;
   final Color leadingBg;
   final double leadingBgOpacity;
+  final bool showLocation;
 
   const _SubjectsTab({
     required this.yearId,
@@ -192,6 +229,7 @@ class _SubjectsTab extends ConsumerWidget {
     required this.leading,
     required this.leadingBg,
     this.leadingBgOpacity = 0.2,
+    required this.showLocation,
   });
 
   @override
@@ -205,39 +243,114 @@ class _SubjectsTab extends ConsumerWidget {
             error: (e, _) => Center(child: Text(AppErrorMessage.from(e))),
             data: (subjects) => subjects.isEmpty
                 ? Center(child: Text(emptyText))
-                : ListView.builder(
+                : ListView.separated(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 16,
                       vertical: 8,
                     ),
                     itemCount: subjects.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (context, i) {
                       final s = subjects[i];
-                      return ListTile(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        tileColor: Theme.of(context).colorScheme.surface,
-                        leading: CircleAvatar(
-                          backgroundColor: leadingBg.withValues(
-                            alpha: leadingBgOpacity,
+                      final description = s['description'] as String?;
+                      final location = (s['location'] as String?)?.trim();
+                      final subtitle = <String>[
+                        if (description != null &&
+                            description.trim().isNotEmpty)
+                          description.trim(),
+                        if (showLocation &&
+                            location != null &&
+                            location.isNotEmpty)
+                          '📍 $location',
+                      ].join(' · ');
+
+                      return Material(
+                        color: Theme.of(context).colorScheme.surface,
+                        borderRadius: BorderRadius.circular(14),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: () => onTap(s['id'] as String),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 12,
+                            ),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.outline.withValues(alpha: 0.15),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 42,
+                                  height: 42,
+                                  decoration: BoxDecoration(
+                                    color: leadingBg.withValues(
+                                      alpha: leadingBgOpacity,
+                                    ),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: Text(
+                                    '${i + 1}',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurface,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          leading,
+                                          const SizedBox(width: 6),
+                                          Expanded(
+                                            child: Text(
+                                              s['name'] as String,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      if (subtitle.isNotEmpty) ...[
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          subtitle,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onSurfaceVariant,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                const Icon(
+                                  Icons.arrow_back_ios_new_rounded,
+                                  size: 14,
+                                ),
+                              ],
+                            ),
                           ),
-                          child: leading,
                         ),
-                        title: Text(s['name'] as String),
-                        subtitle: s['description'] != null
-                            ? Text(
-                                s['description'] as String,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              )
-                            : null,
-                        trailing: const Icon(
-                          Icons.arrow_back_ios_rounded,
-                          size: 14,
-                        ),
-                        onTap: () => onTap(s['id'] as String),
-                      ).animate(delay: (30 * i).ms).fadeIn();
+                      );
                     },
                   ),
           ),

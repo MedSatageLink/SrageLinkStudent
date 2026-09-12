@@ -38,7 +38,7 @@ Future<List<Map<String, dynamic>>> _fetchPracticalSessionsRemote({
   final assignmentsRes = await Supabase.instance.client
       .from('lecture_assignments')
       .select(
-        'lecture_id, lectures(id, practical_session_id, start_at, end_at, location, attendance_window_start, attendance_window_end)',
+        'lecture_id, lectures(id, practical_session_id, start_at, end_at, attendance_window_start, attendance_window_end, practical_sessions(subject_id, subjects(location)))',
       )
       .eq('student_id', uid);
   final assignments = List<Map<String, dynamic>>.from(assignmentsRes as List);
@@ -227,7 +227,6 @@ class _PracticalSessionsScreenState
   String _formatLectureLine(Map<String, dynamic> lecture) {
     final start = DateTime.tryParse(lecture['start_at'] as String? ?? '');
     final end = DateTime.tryParse(lecture['end_at'] as String? ?? '');
-    final location = lecture['location'] as String? ?? '—';
     if (start == null) return '—';
     final dateStr = DateFormat('yyyy-MM-dd').format(start);
     final timeStr = DateFormat('HH:mm').format(start);
@@ -235,7 +234,7 @@ class _PracticalSessionsScreenState
         ? ''
         : _formatDuration(end.difference(start).inMinutes);
     final durStr = dur.isEmpty ? '' : ' · $dur';
-    return '$dateStr · $timeStr · $location$durStr';
+    return '$dateStr · $timeStr$durStr';
   }
 
   String _formatSpentMinutes(int? mins) {
@@ -395,23 +394,6 @@ class _PracticalSessionsScreenState
                                     const Gap(4),
                                     Text(
                                       _formatLectureLine(lecture),
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.bodyMedium,
-                                    ),
-                                  ],
-                                ),
-                                const Gap(4),
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.location_on_outlined,
-                                      size: 14,
-                                      color: muted,
-                                    ),
-                                    const Gap(4),
-                                    Text(
-                                      '${lecture['location']}',
                                       style: Theme.of(
                                         context,
                                       ).textTheme.bodyMedium,

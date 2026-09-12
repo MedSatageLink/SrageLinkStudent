@@ -46,6 +46,7 @@ CREATE TABLE public.subjects (
   name        TEXT        NOT NULL,          -- e.g. "ستاج الجراحة"
   year_id     UUID        NOT NULL REFERENCES public.years(id) ON DELETE CASCADE,
   description TEXT,
+  location    TEXT,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -104,7 +105,6 @@ CREATE TABLE public.lectures (
   resident_id             UUID        REFERENCES public.profiles(id) ON DELETE SET NULL,
   start_at                TIMESTAMPTZ NOT NULL,
   end_at                  TIMESTAMPTZ NOT NULL,
-  location                TEXT        NOT NULL,
   attendance_window_start TIMESTAMPTZ NOT NULL,  -- QR scan opens
   attendance_window_end   TIMESTAMPTZ NOT NULL,  -- QR scan closes
   created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()

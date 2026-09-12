@@ -130,17 +130,6 @@ class StudentProfileScreen extends ConsumerWidget {
                   ),
                 ),
                 const Gap(24),
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    await Supabase.instance.client.auth.signOut();
-                  },
-                  icon: const Icon(Icons.logout_rounded),
-                  label: const Text('تسجيل الخروج'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.error,
-                    side: BorderSide(color: AppColors.error),
-                  ),
-                ),
               ],
             ),
           ),
