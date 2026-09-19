@@ -57,7 +57,8 @@ Deno.serve(async (req: Request) => {
       role,          // "student" | "resident" | "mini_admin" (never "admin")
       category_id,   // required for student
       order_number,  // required for student
-      subject_id,    // required for resident
+      subject_id,    // legacy single subject input
+      subject_ids,   // new multi-subject input
     } = body;
 
     // Validate role — admin accounts can NEVER be created here
@@ -89,8 +90,20 @@ Deno.serve(async (req: Request) => {
       return json({ error: "gender is required for students and must be 'male' or 'female'" }, 400);
     }
 
-    if ((role === "resident" || role === "mini_admin") && !subject_id) {
-      return json({ error: "subject_id is required for residents and mini_admin" }, 400);
+    const normalizedSubjectIds = Array.isArray(subject_ids)
+      ? subject_ids.map((x) => String(x)).filter((x) => x.trim().length > 0)
+      : [];
+
+    if (subject_id && normalizedSubjectIds.length === 0) {
+      normalizedSubjectIds.push(String(subject_id));
+    }
+
+    if ((role === "resident" || role === "mini_admin") && normalizedSubjectIds.length === 0) {
+      return json({ error: "subject_ids is required for residents and mini_admin" }, 400);
+    }
+
+    if (role === "mini_admin" && normalizedSubjectIds.length > 1) {
+      return json({ error: "mini_admin supports a single subject assignment only" }, 400);
     }
 
     // ── 3. Create auth user with service_role ──────────────
@@ -138,15 +151,27 @@ Deno.serve(async (req: Request) => {
       profileUpdate.order_number = order_number ?? null;
       profileUpdate.gender = gender;
     }
-    if (role === "resident" || role === "mini_admin") {
-      profileUpdate.subject_id = subject_id;
-    }
-
     if (Object.keys(profileUpdate).length > 0) {
       await adminClient
         .from("profiles")
         .update(profileUpdate)
         .eq("id", newUser.user!.id);
+    }
+
+    if (role === "resident" || role === "mini_admin") {
+      const assignmentRows = normalizedSubjectIds.map((sid) => ({
+        user_id: newUser.user!.id,
+        subject_id: sid,
+      }));
+
+      const { error: assignErr } = await adminClient
+        .from("user_subject_assignments")
+        .insert(assignmentRows);
+
+      if (assignErr) {
+        await adminClient.auth.admin.deleteUser(newUser.user!.id);
+        return json({ error: assignErr.message }, 400);
+      }
     }
 
     return json(

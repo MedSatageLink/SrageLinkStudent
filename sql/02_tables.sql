@@ -9,7 +9,6 @@ CREATE TABLE public.profiles (
   full_name     TEXT        NOT NULL DEFAULT '',
   university_id TEXT        UNIQUE,
   category_id   UUID,                        -- FK added after categories is created
-  subject_id    UUID,                        -- resident's subject (nullable for students)
   order_number  INT,                         -- sequential order within category (for auto-assign)
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -36,10 +35,6 @@ ALTER TABLE public.profiles
   ADD CONSTRAINT fk_profiles_category
   FOREIGN KEY (category_id) REFERENCES public.categories(id) ON DELETE SET NULL;
 
-ALTER TABLE public.profiles
-  ADD CONSTRAINT fk_profiles_subject
-  FOREIGN KEY (subject_id) REFERENCES public.subjects(id) ON DELETE SET NULL;
-
 -- ─── SUBJECTS (each subject = one "stage") ───────────────────
 CREATE TABLE public.subjects (
   id          UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -48,6 +43,16 @@ CREATE TABLE public.subjects (
   description TEXT,
   location    TEXT,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ─── USER↔SUBJECT ASSIGNMENTS ───────────────────────────────
+-- Assigns residents/mini_admins to one or multiple subjects
+CREATE TABLE public.user_subject_assignments (
+  id         UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id    UUID        NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  subject_id UUID        NOT NULL REFERENCES public.subjects(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, subject_id)
 );
 
 -- ─── VIDEOS ──────────────────────────────────────────────────

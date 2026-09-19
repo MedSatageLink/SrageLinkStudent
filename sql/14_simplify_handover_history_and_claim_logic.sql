@@ -50,17 +50,17 @@ CREATE POLICY "lecture_handover_history_select" ON public.lecture_resident_hando
         SELECT 1
         FROM public.lectures l
         JOIN public.practical_sessions ps ON ps.id = l.practical_session_id
-        JOIN public.profiles me ON me.id = auth.uid()
         WHERE l.id = lecture_resident_handover_history.lecture_id
-          AND me.subject_id IS NOT NULL
-          AND me.subject_id = ps.subject_id
+          AND EXISTS (
+            SELECT 1
+            FROM public.user_subject_assignments usa
+            WHERE usa.user_id = auth.uid()
+              AND usa.subject_id = ps.subject_id
+          )
       )
     )
   );
 
--- ------------------------------------------------------------
--- 2) Attendance submit: claim lecture + complete pending handover row
--- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.submit_practical_attendance_event(
   p_lecture_id UUID,
   p_student_id UUID,
@@ -91,7 +91,6 @@ DECLARE
   v_scan_at              TIMESTAMPTZ := COALESCE(p_scanned_local_at, NOW());
   v_lecture_resident_id  UUID;
   v_lecture_subject_id   UUID;
-  v_resident_subject_id  UUID;
   v_open_handover_id     UUID;
 BEGIN
   IF v_uid IS NULL THEN
@@ -102,17 +101,13 @@ BEGIN
     RETURN jsonb_build_object('status', 'error', 'message', 'invalid_event_type');
   END IF;
 
-  SELECT role, subject_id
-    INTO v_role, v_resident_subject_id
+  SELECT role
+    INTO v_role
   FROM public.profiles
   WHERE id = v_uid;
 
   IF v_role <> 'resident' THEN
     RETURN jsonb_build_object('status', 'error', 'message', 'Resident only');
-  END IF;
-
-  IF v_resident_subject_id IS NULL THEN
-    RETURN jsonb_build_object('status', 'error', 'message', 'resident_subject_not_set');
   END IF;
 
   SELECT l.resident_id, ps.subject_id
@@ -126,7 +121,12 @@ BEGIN
     RETURN jsonb_build_object('status', 'error', 'message', 'lecture_not_found');
   END IF;
 
-  IF v_lecture_subject_id <> v_resident_subject_id THEN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.user_subject_assignments usa
+    WHERE usa.user_id = v_uid
+      AND usa.subject_id = v_lecture_subject_id
+  ) THEN
     RETURN jsonb_build_object('status', 'error', 'message', 'resident_not_allowed_for_subject');
   END IF;
 

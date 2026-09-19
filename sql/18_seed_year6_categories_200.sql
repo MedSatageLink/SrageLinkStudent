@@ -7,7 +7,7 @@ WITH seed AS (
   SELECT
     gs AS rotation_order,
     'المجموعة ' || gs::text AS name
-  FROM generate_series(1, 200) AS gs
+  FROM generate_series(1, 160) AS gs
 ), updated AS (
   UPDATE public.categories c
   SET
@@ -42,7 +42,7 @@ SELECT jsonb_pretty(
     ORDER BY s.rotation_order
   )
 ) AS categories_rotation_id_map
-FROM generate_series(1, 200) AS s(rotation_order)
+FROM generate_series(1, 160) AS s(rotation_order)
 LEFT JOIN public.categories c
   ON c.year_id = 'e079db08-45f6-4e68-8219-238349851983'::uuid
  AND c.rotation_order = s.rotation_order;

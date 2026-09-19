@@ -9,6 +9,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:stagelink_student/core/utils/app_error_message.dart';
 import '../../../core/theme/app_theme.dart';
 
+DateTime _currentWeekStartSaturdayLocal() {
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final daysSinceSaturday = (today.weekday - DateTime.saturday + 7) % 7;
+  return today.subtract(Duration(days: daysSinceSaturday));
+}
+
 final studentProfileProvider = FutureProvider<Map<String, dynamic>>((
   ref,
 ) async {
@@ -97,6 +104,37 @@ final subjectsByYearProvider =
       final fresh = await fetchRemote();
       await prefs.setString(cacheKey, jsonEncode(fresh));
       return fresh;
+    });
+
+final weeklyAttendanceSubjectIdsProvider =
+    FutureProvider.family<Set<String>, String>((ref, yearId) async {
+      final uid = Supabase.instance.client.auth.currentUser!.id;
+      final weekStartLocal = _currentWeekStartSaturdayLocal();
+      final weekEndLocal = weekStartLocal.add(const Duration(days: 7));
+      final weekStartUtcIso = weekStartLocal.toUtc().toIso8601String();
+      final weekEndUtcIso = weekEndLocal.toUtc().toIso8601String();
+
+      final rows = await Supabase.instance.client
+          .from('lecture_assignments')
+          .select(
+            'lectures!inner(start_at, practical_sessions!inner(subject_id, subjects!inner(year_id)))',
+          )
+          .eq('student_id', uid)
+          .eq('lectures.practical_sessions.subjects.year_id', yearId)
+          .gte('lectures.start_at', weekStartUtcIso)
+          .lt('lectures.start_at', weekEndUtcIso);
+
+      final ids = <String>{};
+      for (final row in (rows as List)) {
+        final map = Map<String, dynamic>.from(row as Map);
+        final lecture = map['lectures'] as Map<String, dynamic>?;
+        final session = lecture?['practical_sessions'] as Map<String, dynamic>?;
+        final subjectId = session?['subject_id'] as String?;
+        if (subjectId != null && subjectId.isNotEmpty) {
+          ids.add(subjectId);
+        }
+      }
+      return ids;
     });
 
 class StudentHomeScreen extends ConsumerStatefulWidget {
@@ -235,6 +273,11 @@ class _SubjectsTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final subjectsAsync = ref.watch(subjectsByYearProvider(yearId));
+    final weeklyAttendanceIdsAsync = ref.watch(
+      weeklyAttendanceSubjectIdsProvider(yearId),
+    );
+    final weeklyAttendanceIds =
+        weeklyAttendanceIdsAsync.valueOrNull ?? const <String>{};
     return Column(
       children: [
         Expanded(
@@ -252,6 +295,10 @@ class _SubjectsTab extends ConsumerWidget {
                     separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (context, i) {
                       final s = subjects[i];
+                      final subjectId = s['id'] as String;
+                      final isThisWeek = weeklyAttendanceIds.contains(
+                        subjectId,
+                      );
                       final description = s['description'] as String?;
                       final location = (s['location'] as String?)?.trim();
                       final subtitle = <String>[
@@ -264,12 +311,21 @@ class _SubjectsTab extends ConsumerWidget {
                           '📍 $location',
                       ].join(' · ');
 
+                      final cardBg = isThisWeek
+                          ? const Color(0xFF059669).withValues(alpha: 0.10)
+                          : Theme.of(context).colorScheme.surface;
+                      final borderColor = isThisWeek
+                          ? const Color(0xFF059669).withValues(alpha: 0.55)
+                          : Theme.of(
+                              context,
+                            ).colorScheme.outline.withValues(alpha: 0.15);
+
                       return Material(
-                        color: Theme.of(context).colorScheme.surface,
+                        color: cardBg,
                         borderRadius: BorderRadius.circular(14),
                         child: InkWell(
                           borderRadius: BorderRadius.circular(14),
-                          onTap: () => onTap(s['id'] as String),
+                          onTap: () => onTap(subjectId),
                           child: Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 12,
@@ -277,11 +333,7 @@ class _SubjectsTab extends ConsumerWidget {
                             ),
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.outline.withValues(alpha: 0.15),
-                              ),
+                              border: Border.all(color: borderColor),
                             ),
                             child: Row(
                               children: [
@@ -323,6 +375,29 @@ class _SubjectsTab extends ConsumerWidget {
                                               ),
                                             ),
                                           ),
+                                          if (isThisWeek)
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 3,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: const Color(
+                                                  0xFF059669,
+                                                ).withValues(alpha: 0.14),
+                                                borderRadius:
+                                                    BorderRadius.circular(999),
+                                              ),
+                                              child: const Text(
+                                                'هذا الأسبوع',
+                                                style: TextStyle(
+                                                  color: Color(0xFF065F46),
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ),
                                         ],
                                       ),
                                       if (subtitle.isNotEmpty) ...[

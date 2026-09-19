@@ -12,7 +12,7 @@ WITH seed_subjects AS (
   SELECT
     gs AS rotation_order,
     'المادة ' || gs::text AS name
-  FROM generate_series(1, 50) AS gs
+  FROM generate_series(1, 40) AS gs
 )
 UPDATE public.subjects sb
 SET name = s.name
@@ -24,7 +24,7 @@ WITH seed_subjects AS (
   SELECT
     gs AS rotation_order,
     'المادة ' || gs::text AS name
-  FROM generate_series(1, 50) AS gs
+  FROM generate_series(1, 40) AS gs
 )
 INSERT INTO public.subjects (name, year_id, rotation_order)
 SELECT
@@ -45,7 +45,7 @@ SET title = 'الجلسة الأولى'
 FROM public.subjects sb
 WHERE sb.id = ps.subject_id
   AND sb.year_id = 'e079db08-45f6-4e68-8219-238349851983'::uuid
-  AND sb.rotation_order BETWEEN 1 AND 50
+  AND sb.rotation_order BETWEEN 1 AND 40
   AND ps.order_index = 1;
 
 INSERT INTO public.practical_sessions (subject_id, title, order_index)
@@ -55,7 +55,7 @@ SELECT
   1
 FROM public.subjects sb
 WHERE sb.year_id = 'e079db08-45f6-4e68-8219-238349851983'::uuid
-  AND sb.rotation_order BETWEEN 1 AND 50
+  AND sb.rotation_order BETWEEN 1 AND 40
   AND NOT EXISTS (
     SELECT 1
     FROM public.practical_sessions ps
@@ -69,7 +69,7 @@ SET title = 'الجلسة الثانية'
 FROM public.subjects sb
 WHERE sb.id = ps.subject_id
   AND sb.year_id = 'e079db08-45f6-4e68-8219-238349851983'::uuid
-  AND sb.rotation_order BETWEEN 1 AND 50
+  AND sb.rotation_order BETWEEN 1 AND 40
   AND ps.order_index = 2;
 
 INSERT INTO public.practical_sessions (subject_id, title, order_index)
@@ -79,7 +79,7 @@ SELECT
   2
 FROM public.subjects sb
 WHERE sb.year_id = 'e079db08-45f6-4e68-8219-238349851983'::uuid
-  AND sb.rotation_order BETWEEN 1 AND 50
+  AND sb.rotation_order BETWEEN 1 AND 40
   AND NOT EXISTS (
     SELECT 1
     FROM public.practical_sessions ps
@@ -110,7 +110,7 @@ SELECT jsonb_pretty(
     ORDER BY s.rotation_order
   )
 ) AS subjects_sessions_map
-FROM generate_series(1, 50) AS s(rotation_order)
+FROM generate_series(1, 40) AS s(rotation_order)
 LEFT JOIN public.subjects sb
   ON sb.year_id = 'e079db08-45f6-4e68-8219-238349851983'::uuid
  AND sb.rotation_order = s.rotation_order;

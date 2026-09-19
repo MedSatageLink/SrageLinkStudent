@@ -13,7 +13,11 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT subject_id FROM public.profiles WHERE id = auth.uid();
+  SELECT usa.subject_id
+  FROM public.user_subject_assignments usa
+  WHERE usa.user_id = auth.uid()
+  ORDER BY usa.created_at ASC
+  LIMIT 1;
 $$;
 
 -- 3) Profiles visibility: allow mini_admin to see students in same year of assigned subject
@@ -225,10 +229,13 @@ CREATE POLICY "lectures_select" ON public.lectures
       AND EXISTS (
         SELECT 1
         FROM public.practical_sessions ps
-        JOIN public.profiles me ON me.id = auth.uid()
         WHERE ps.id = lectures.practical_session_id
-          AND me.subject_id IS NOT NULL
-          AND me.subject_id = ps.subject_id
+          AND EXISTS (
+            SELECT 1
+            FROM public.user_subject_assignments usa
+            WHERE usa.user_id = auth.uid()
+              AND usa.subject_id = ps.subject_id
+          )
           AND (lectures.resident_id IS NULL OR lectures.resident_id = auth.uid())
       )
     )
@@ -396,10 +403,9 @@ DECLARE
   v_item      public.practical_attendance_queue%ROWTYPE;
   v_att       public.practical_attendance%ROWTYPE;
   v_att_id    UUID;
-  v_my_subject UUID;
   v_queue_subject UUID;
 BEGIN
-  SELECT role, subject_id INTO v_role, v_my_subject FROM public.profiles WHERE id = v_uid;
+  SELECT role INTO v_role FROM public.profiles WHERE id = v_uid;
   IF v_role::text NOT IN ('admin', 'mini_admin') THEN
     RETURN jsonb_build_object('status', 'error', 'message', 'Admin only');
   END IF;
@@ -419,7 +425,12 @@ BEGIN
     JOIN public.practical_sessions ps ON ps.id = l.practical_session_id
     WHERE l.id = v_item.lecture_id;
 
-    IF v_my_subject IS NULL OR v_queue_subject IS NULL OR v_my_subject <> v_queue_subject THEN
+    IF v_queue_subject IS NULL OR NOT EXISTS (
+      SELECT 1
+      FROM public.user_subject_assignments usa
+      WHERE usa.user_id = v_uid
+        AND usa.subject_id = v_queue_subject
+    ) THEN
       RETURN jsonb_build_object('status', 'error', 'message', 'forbidden_subject_scope');
     END IF;
   END IF;
@@ -508,11 +519,10 @@ AS $$
 DECLARE
   v_role user_role;
   v_uid  UUID := auth.uid();
-  v_my_subject UUID;
   v_queue_subject UUID;
   v_lecture_id UUID;
 BEGIN
-  SELECT role, subject_id INTO v_role, v_my_subject FROM public.profiles WHERE id = v_uid;
+  SELECT role INTO v_role FROM public.profiles WHERE id = v_uid;
   IF v_role::text NOT IN ('admin', 'mini_admin') THEN
     RETURN jsonb_build_object('status', 'error', 'message', 'Admin only');
   END IF;
@@ -532,7 +542,12 @@ BEGIN
     JOIN public.practical_sessions ps ON ps.id = l.practical_session_id
     WHERE l.id = v_lecture_id;
 
-    IF v_my_subject IS NULL OR v_queue_subject IS NULL OR v_my_subject <> v_queue_subject THEN
+    IF v_queue_subject IS NULL OR NOT EXISTS (
+      SELECT 1
+      FROM public.user_subject_assignments usa
+      WHERE usa.user_id = v_uid
+        AND usa.subject_id = v_queue_subject
+    ) THEN
       RETURN jsonb_build_object('status', 'error', 'message', 'forbidden_subject_scope');
     END IF;
   END IF;

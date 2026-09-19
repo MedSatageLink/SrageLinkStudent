@@ -119,9 +119,16 @@ class _QrScreenState extends ConsumerState<QrScreen> {
     return '$hours س $rem د';
   }
 
+  DateTime _toSyriaTime(DateTime value) {
+    const syriaOffset = Duration(hours: 3);
+    return (value.isUtc ? value : value.toUtc()).add(syriaOffset);
+  }
+
   String _formatLectureTime(Map<String, dynamic> lecture) {
-    final start = DateTime.tryParse(lecture['start_at'] as String? ?? '');
-    final end = DateTime.tryParse(lecture['end_at'] as String? ?? '');
+    final startRaw = DateTime.tryParse(lecture['start_at'] as String? ?? '');
+    final endRaw = DateTime.tryParse(lecture['end_at'] as String? ?? '');
+    final start = startRaw == null ? null : _toSyriaTime(startRaw);
+    final end = endRaw == null ? null : _toSyriaTime(endRaw);
     if (start == null) return '—';
     final dateStr = DateFormat('yyyy-MM-dd').format(start);
     final timeStr = DateFormat('HH:mm').format(start);

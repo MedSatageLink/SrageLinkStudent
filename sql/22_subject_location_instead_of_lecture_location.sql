@@ -6,6 +6,15 @@
 ALTER TABLE public.subjects
   ADD COLUMN IF NOT EXISTS location TEXT;
 
+-- 1.1) Ensure new user-subject assignment table exists (for resident scope checks)
+CREATE TABLE IF NOT EXISTS public.user_subject_assignments (
+  id         UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id    UUID        NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  subject_id UUID        NOT NULL REFERENCES public.subjects(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, subject_id)
+);
+
 -- 2) Backfill subject location from existing lecture location if the column still exists
 --    (safe to re-run after dropping lectures.location)
 DO $$
@@ -66,7 +75,6 @@ DECLARE
   v_scan_at              TIMESTAMPTZ := COALESCE(p_scanned_local_at, NOW());
   v_lecture_resident_id  UUID;
   v_lecture_subject_id   UUID;
-  v_resident_subject_id  UUID;
   v_open_handover_id     UUID;
 BEGIN
   IF v_uid IS NULL THEN
@@ -77,17 +85,13 @@ BEGIN
     RETURN jsonb_build_object('status', 'error', 'message', 'invalid_event_type');
   END IF;
 
-  SELECT role, subject_id
-    INTO v_role, v_resident_subject_id
+  SELECT role
+    INTO v_role
   FROM public.profiles
   WHERE id = v_uid;
 
   IF v_role <> 'resident' THEN
     RETURN jsonb_build_object('status', 'error', 'message', 'Resident only');
-  END IF;
-
-  IF v_resident_subject_id IS NULL THEN
-    RETURN jsonb_build_object('status', 'error', 'message', 'resident_subject_not_set');
   END IF;
 
   SELECT l.resident_id, ps.subject_id
@@ -101,7 +105,12 @@ BEGIN
     RETURN jsonb_build_object('status', 'error', 'message', 'lecture_not_found');
   END IF;
 
-  IF v_lecture_subject_id <> v_resident_subject_id THEN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.user_subject_assignments usa
+    WHERE usa.user_id = v_uid
+      AND usa.subject_id = v_lecture_subject_id
+  ) THEN
     RETURN jsonb_build_object('status', 'error', 'message', 'resident_not_allowed_for_subject');
   END IF;
 
