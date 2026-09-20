@@ -38,7 +38,7 @@ Future<List<Map<String, dynamic>>> _fetchPracticalSessionsRemote({
   final assignmentsRes = await Supabase.instance.client
       .from('lecture_assignments')
       .select(
-        'lecture_id, lectures(id, practical_session_id, start_at, end_at, attendance_window_start, attendance_window_end, practical_sessions(subject_id, subjects(location)))',
+        'lecture_id, subgroup_letter, lectures(id, practical_session_id, start_at, end_at, attendance_window_start, attendance_window_end, practical_sessions(subject_id, subjects(location)))',
       )
       .eq('student_id', uid);
   final assignments = List<Map<String, dynamic>>.from(assignmentsRes as List);
@@ -340,6 +340,8 @@ class _PracticalSessionsScreenState
 
                       final lecture =
                           assignment?['lectures'] as Map<String, dynamic>?;
+                      final subgroupLetter =
+                          assignment?['subgroup_letter'] as String?;
 
                       return Card(
                         margin: const EdgeInsets.only(bottom: 10),
@@ -391,6 +393,30 @@ class _PracticalSessionsScreenState
                               ),
                               if (lecture != null) ...[
                                 const Gap(8),
+                                if (subgroupLetter != null &&
+                                    subgroupLetter.trim().isNotEmpty) ...[
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary.withValues(
+                                        alpha: 0.1,
+                                      ),
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Text(
+                                      'المجموعة $subgroupLetter',
+                                      style: TextStyle(
+                                        color: AppColors.primary,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                  const Gap(8),
+                                ],
                                 Row(
                                   children: [
                                     Icon(

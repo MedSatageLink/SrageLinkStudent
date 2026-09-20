@@ -150,7 +150,7 @@ class _State extends ConsumerState<StudentLoginScreen> {
                         borderRadius: BorderRadius.circular(24),
                       ),
                       child: const Icon(
-                        Icons.school_rounded,
+                        Icons.medical_services_rounded,
                         color: Colors.white,
                         size: 48,
                       ),
