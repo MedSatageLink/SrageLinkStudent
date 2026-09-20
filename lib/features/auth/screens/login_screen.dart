@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -145,14 +146,17 @@ class _State extends ConsumerState<StudentLoginScreen> {
                     Container(
                       width: 88,
                       height: 88,
+                      alignment: Alignment.center,
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(24),
                       ),
-                      child: const Icon(
-                        Icons.medical_services_rounded,
-                        color: Colors.white,
-                        size: 48,
+                      child: const Center(
+                        child: FaIcon(
+                          FontAwesomeIcons.stethoscope,
+                          color: Colors.white,
+                          size: 40,
+                        ),
                       ),
                     ).animate().scale(
                       duration: 600.ms,
