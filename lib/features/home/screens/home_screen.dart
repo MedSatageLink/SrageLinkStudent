@@ -8,6 +8,8 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:stagelink_student/core/utils/app_error_message.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/router/app_router.dart';
+import '../../../core/services/device_service.dart';
 
 DateTime _currentWeekStartSaturdayLocal() {
   final now = DateTime.now();
@@ -75,7 +77,9 @@ final subjectsByYearProvider =
       Future<List<Map<String, dynamic>>> fetchRemote() async {
         final res = await Supabase.instance.client
             .from('subjects')
-            .select('id, name, description, rotation_order, location')
+            .select(
+              'id, name, description, rotation_order, location, needed_hours',
+            )
             .eq('year_id', yearId)
             .order('rotation_order')
             .order('name');
@@ -137,6 +141,86 @@ final weeklyAttendanceSubjectIdsProvider =
       return ids;
     });
 
+class _PracticalSubjectAttendanceStats {
+  final int assignedSessions;
+  final int achievedMinutes;
+
+  const _PracticalSubjectAttendanceStats({
+    required this.assignedSessions,
+    required this.achievedMinutes,
+  });
+}
+
+int _spentMinutesFromAttendance(Map<String, dynamic> row) {
+  final checkIn = DateTime.tryParse(row['check_in_at'] as String? ?? '');
+  final checkOut = DateTime.tryParse(row['check_out_at'] as String? ?? '');
+  if (checkIn == null || checkOut == null || !checkOut.isAfter(checkIn)) {
+    return 0;
+  }
+  return checkOut.difference(checkIn).inMinutes;
+}
+
+final practicalAttendanceStatsByYearProvider =
+    FutureProvider.family<
+      Map<String, _PracticalSubjectAttendanceStats>,
+      String
+    >((ref, yearId) async {
+      final uid = Supabase.instance.client.auth.currentUser!.id;
+
+      final assignments = await Supabase.instance.client
+          .from('lecture_assignments')
+          .select(
+            'lecture_id, lectures!inner(practical_sessions!inner(subject_id, subjects!inner(year_id)))',
+          )
+          .eq('student_id', uid)
+          .eq('lectures.practical_sessions.subjects.year_id', yearId);
+
+      final lectureToSubject = <String, String>{};
+      final sessionsBySubject = <String, int>{};
+
+      for (final row in (assignments as List)) {
+        final map = Map<String, dynamic>.from(row as Map);
+        final lectureId = map['lecture_id'] as String?;
+        final lecture = map['lectures'] as Map<String, dynamic>?;
+        final session = lecture?['practical_sessions'] as Map<String, dynamic>?;
+        final subjectId = session?['subject_id'] as String?;
+        if (lectureId == null || subjectId == null) continue;
+        lectureToSubject[lectureId] = subjectId;
+        sessionsBySubject[subjectId] = (sessionsBySubject[subjectId] ?? 0) + 1;
+      }
+
+      final achievedMinutesBySubject = <String, int>{};
+      final lectureIds = lectureToSubject.keys.toList();
+      if (lectureIds.isNotEmpty) {
+        final attendanceRows = await Supabase.instance.client
+            .from('practical_attendance')
+            .select('lecture_id, check_in_at, check_out_at')
+            .eq('student_id', uid)
+            .inFilter('lecture_id', lectureIds);
+
+        for (final row in (attendanceRows as List)) {
+          final map = Map<String, dynamic>.from(row as Map);
+          final lectureId = map['lecture_id'] as String?;
+          if (lectureId == null) continue;
+          final subjectId = lectureToSubject[lectureId];
+          if (subjectId == null) continue;
+          final spent = _spentMinutesFromAttendance(map);
+          if (spent <= 0) continue;
+          achievedMinutesBySubject[subjectId] =
+              (achievedMinutesBySubject[subjectId] ?? 0) + spent;
+        }
+      }
+
+      final out = <String, _PracticalSubjectAttendanceStats>{};
+      for (final e in sessionsBySubject.entries) {
+        out[e.key] = _PracticalSubjectAttendanceStats(
+          assignedSessions: e.value,
+          achievedMinutes: achievedMinutesBySubject[e.key] ?? 0,
+        );
+      }
+      return out;
+    });
+
 class StudentHomeScreen extends ConsumerStatefulWidget {
   const StudentHomeScreen({super.key});
 
@@ -145,17 +229,72 @@ class StudentHomeScreen extends ConsumerStatefulWidget {
 }
 
 class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   static const String _homeTabPrefKey = 'student_home_selected_tab_v1';
   late final TabController _tabController;
   bool _tabReady = false;
+  bool _onlyThisWeek = false;
+  Timer? _deviceLockTimer;
+  bool _checkingDeviceLock = false;
+  bool _forcedLogout = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(_persistSelectedTab);
     _loadSavedTab();
+    unawaited(_enforceDeviceLock());
+    _deviceLockTimer = Timer.periodic(
+      const Duration(seconds: 45),
+      (_) => unawaited(_enforceDeviceLock()),
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_enforceDeviceLock());
+    }
+  }
+
+  Future<void> _enforceDeviceLock() async {
+    if (_checkingDeviceLock || _forcedLogout) return;
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+
+    _checkingDeviceLock = true;
+    try {
+      final myDeviceId = await DeviceService().getDeviceId();
+      final row = await Supabase.instance.client
+          .from('profiles')
+          .select('role, login_enabled, login_device_id')
+          .eq('id', user.id)
+          .single();
+      final profile = Map<String, dynamic>.from(row);
+      final role = profile['role'] as String?;
+      final enabled = (profile['login_enabled'] as bool?) ?? true;
+      final lockedDeviceId = profile['login_device_id'] as String?;
+
+      final shouldLogout =
+          role != 'student' ||
+          !enabled ||
+          lockedDeviceId == null ||
+          lockedDeviceId != myDeviceId;
+
+      if (shouldLogout) {
+        _forcedLogout = true;
+        await Supabase.instance.client.auth.signOut();
+        if (mounted) {
+          ref.invalidate(routerProvider);
+        }
+      }
+    } catch (_) {
+      // Ignore transient connectivity failures.
+    } finally {
+      _checkingDeviceLock = false;
+    }
   }
 
   Future<void> _loadSavedTab() async {
@@ -176,6 +315,8 @@ class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _deviceLockTimer?.cancel();
     _tabController.removeListener(_persistSelectedTab);
     _tabController.dispose();
     super.dispose();
@@ -202,6 +343,15 @@ class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen>
           appBar: AppBar(
             title: const Text('StageLink'),
             actions: [
+              IconButton(
+                tooltip: _onlyThisWeek
+                    ? 'عرض كل البطاقات'
+                    : 'فلترة هذا الأسبوع',
+                icon: Icon(
+                  _onlyThisWeek ? Icons.filter_alt : Icons.filter_alt_outlined,
+                ),
+                onPressed: () => setState(() => _onlyThisWeek = !_onlyThisWeek),
+              ),
               IconButton(
                 icon: const Icon(Icons.person_outline_rounded),
                 onPressed: () => context.go('/profile'),
@@ -230,6 +380,7 @@ class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen>
                       ),
                       leadingBg: AppColors.primaryContainer,
                       showLocation: false,
+                      onlyThisWeek: _onlyThisWeek,
                     ),
                     _SubjectsTab(
                       yearId: yearId,
@@ -242,6 +393,7 @@ class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen>
                       leadingBg: const Color(0xFF059669),
                       leadingBgOpacity: 0.1,
                       showLocation: true,
+                      onlyThisWeek: _onlyThisWeek,
                     ),
                   ],
                 ),
@@ -259,6 +411,7 @@ class _SubjectsTab extends ConsumerWidget {
   final Color leadingBg;
   final double leadingBgOpacity;
   final bool showLocation;
+  final bool onlyThisWeek;
 
   const _SubjectsTab({
     required this.yearId,
@@ -268,7 +421,16 @@ class _SubjectsTab extends ConsumerWidget {
     required this.leadingBg,
     this.leadingBgOpacity = 0.2,
     required this.showLocation,
+    required this.onlyThisWeek,
   });
+
+  String _formatMinutes(int mins) {
+    final h = mins ~/ 60;
+    final m = mins % 60;
+    if (h <= 0) return '$m د';
+    if (m == 0) return '$h س';
+    return '$h س $m د';
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -278,156 +440,237 @@ class _SubjectsTab extends ConsumerWidget {
     );
     final weeklyAttendanceIds =
         weeklyAttendanceIdsAsync.valueOrNull ?? const <String>{};
+    final Map<String, _PracticalSubjectAttendanceStats> attendanceStats =
+        showLocation
+        ? (ref
+                  .watch(practicalAttendanceStatsByYearProvider(yearId))
+                  .valueOrNull ??
+              const <String, _PracticalSubjectAttendanceStats>{})
+        : const <String, _PracticalSubjectAttendanceStats>{};
     return Column(
       children: [
         Expanded(
           child: subjectsAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (e, _) => Center(child: Text(AppErrorMessage.from(e))),
-            data: (subjects) => subjects.isEmpty
-                ? Center(child: Text(emptyText))
-                : ListView.separated(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    itemCount: subjects.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 10),
-                    itemBuilder: (context, i) {
-                      final s = subjects[i];
-                      final subjectId = s['id'] as String;
-                      final isThisWeek = weeklyAttendanceIds.contains(
-                        subjectId,
-                      );
-                      final description = s['description'] as String?;
-                      final location = (s['location'] as String?)?.trim();
-                      final subtitle = <String>[
-                        if (description != null &&
-                            description.trim().isNotEmpty)
-                          description.trim(),
-                        if (showLocation &&
-                            location != null &&
-                            location.isNotEmpty)
-                          '📍 $location',
-                      ].join(' · ');
+            data: (subjects) {
+              final visible = onlyThisWeek
+                  ? subjects
+                        .where(
+                          (s) =>
+                              weeklyAttendanceIds.contains(s['id'] as String),
+                        )
+                        .toList()
+                  : subjects;
 
-                      final cardBg = isThisWeek
-                          ? const Color(0xFF059669).withValues(alpha: 0.10)
-                          : Theme.of(context).colorScheme.surface;
-                      final borderColor = isThisWeek
-                          ? const Color(0xFF059669).withValues(alpha: 0.55)
-                          : Theme.of(
-                              context,
-                            ).colorScheme.outline.withValues(alpha: 0.15);
+              return visible.isEmpty
+                  ? Center(
+                      child: Text(
+                        onlyThisWeek
+                            ? 'لا توجد بطاقات مطابقة لفلترة هذا الأسبوع'
+                            : emptyText,
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      itemCount: visible.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 10),
+                      itemBuilder: (context, i) {
+                        final s = visible[i];
+                        final subjectId = s['id'] as String;
+                        final isThisWeek = weeklyAttendanceIds.contains(
+                          subjectId,
+                        );
+                        final description = s['description'] as String?;
+                        final location = (s['location'] as String?)?.trim();
+                        final stats = attendanceStats[subjectId];
+                        final neededMinutesRaw = (s['needed_hours'] as num?)
+                            ?.toDouble();
+                        final neededPerSessionMinutes = neededMinutesRaw == null
+                            ? 0
+                            : neededMinutesRaw.round();
+                        final assignedSessions = stats?.assignedSessions ?? 0;
+                        final achievedMinutes = stats?.achievedMinutes ?? 0;
+                        final int requiredMinutes =
+                            neededPerSessionMinutes * assignedSessions;
+                        final double? progressPct = requiredMinutes > 0
+                            ? ((achievedMinutes / requiredMinutes) * 100).clamp(
+                                0,
+                                100,
+                              )
+                            : null;
 
-                      return Material(
-                        color: cardBg,
-                        borderRadius: BorderRadius.circular(14),
-                        child: InkWell(
+                        final cardBg = isThisWeek
+                            ? const Color(0xFF059669).withValues(alpha: 0.10)
+                            : Theme.of(context).colorScheme.surface;
+                        final borderColor = isThisWeek
+                            ? const Color(0xFF059669).withValues(alpha: 0.55)
+                            : Theme.of(
+                                context,
+                              ).colorScheme.outline.withValues(alpha: 0.15);
+
+                        return Material(
+                          color: cardBg,
                           borderRadius: BorderRadius.circular(14),
-                          onTap: () => onTap(subjectId),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 12,
-                            ),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: borderColor),
-                            ),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 42,
-                                  height: 42,
-                                  decoration: BoxDecoration(
-                                    color: leadingBg.withValues(
-                                      alpha: leadingBgOpacity,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(14),
+                            onTap: () => onTap(subjectId),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 12,
+                              ),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: borderColor),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 42,
+                                    height: 42,
+                                    decoration: BoxDecoration(
+                                      color: leadingBg.withValues(
+                                        alpha: leadingBgOpacity,
+                                      ),
+                                      shape: BoxShape.circle,
                                     ),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  alignment: Alignment.center,
-                                  child: Text(
-                                    '${i + 1}',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.onSurface,
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      '${i + 1}',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onSurface,
+                                      ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          leading,
-                                          const SizedBox(width: 6),
-                                          Expanded(
-                                            child: Text(
-                                              s['name'] as String,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
-                                          ),
-                                          if (isThisWeek)
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 8,
-                                                    vertical: 3,
-                                                  ),
-                                              decoration: BoxDecoration(
-                                                color: const Color(
-                                                  0xFF059669,
-                                                ).withValues(alpha: 0.14),
-                                                borderRadius:
-                                                    BorderRadius.circular(999),
-                                              ),
-                                              child: const Text(
-                                                'هذا الأسبوع',
-                                                style: TextStyle(
-                                                  color: Color(0xFF065F46),
-                                                  fontSize: 11,
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            leading,
+                                            const SizedBox(width: 6),
+                                            Expanded(
+                                              child: Text(
+                                                s['name'] as String,
+                                                style: const TextStyle(
                                                   fontWeight: FontWeight.w700,
                                                 ),
                                               ),
                                             ),
-                                        ],
-                                      ),
-                                      if (subtitle.isNotEmpty) ...[
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          subtitle,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.onSurfaceVariant,
-                                            fontSize: 12,
-                                          ),
+                                            if (isThisWeek)
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 3,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(
+                                                    0xFF059669,
+                                                  ).withValues(alpha: 0.14),
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                        999,
+                                                      ),
+                                                ),
+                                                child: const Text(
+                                                  'هذا الأسبوع',
+                                                  style: TextStyle(
+                                                    color: Color(0xFF065F46),
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                ),
+                                              ),
+                                          ],
                                         ),
+                                        if (showLocation &&
+                                            location != null &&
+                                            location.isNotEmpty) ...[
+                                          const SizedBox(height: 4),
+                                          Row(
+                                            children: [
+                                              Icon(
+                                                Icons.location_on_outlined,
+                                                size: 14,
+                                                color: Theme.of(
+                                                  context,
+                                                ).colorScheme.onSurfaceVariant,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Expanded(
+                                                child: Text(
+                                                  location,
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: TextStyle(
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .onSurfaceVariant,
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                        if (description != null &&
+                                            description.trim().isNotEmpty) ...[
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            description.trim(),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: Theme.of(
+                                                context,
+                                              ).colorScheme.onSurfaceVariant,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
+                                        if (showLocation &&
+                                            neededPerSessionMinutes > 0) ...[
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            assignedSessions <= 0
+                                                ? 'عدد الساعات لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)} '
+                                                : (progressPct == null
+                                                      ? 'المطلوب لكل جلسة: ${_formatMinutes(requiredMinutes)}'
+                                                      : 'المطلوب لكل جلسة: ${_formatMinutes(requiredMinutes)} · الإنجاز: ${progressPct.toStringAsFixed(1)}%'),
+                                            style: const TextStyle(
+                                              color: Color(0xFF065F46),
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 11,
+                                            ),
+                                          ),
+                                        ],
                                       ],
-                                    ],
+                                    ),
                                   ),
-                                ),
-                                const Icon(
-                                  Icons.arrow_back_ios_new_rounded,
-                                  size: 14,
-                                ),
-                              ],
+                                  const Icon(
+                                    Icons.arrow_back_ios_new_rounded,
+                                    size: 14,
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
+                        );
+                      },
+                    );
+            },
           ),
         ),
       ],

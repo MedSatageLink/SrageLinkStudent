@@ -19,7 +19,9 @@ final practicalSubjectsByYearProvider =
     ) async {
       final res = await Supabase.instance.client
           .from('subjects')
-          .select('id, name, description, rotation_order, location')
+          .select(
+            'id, name, description, rotation_order, location, needed_hours',
+          )
           .eq('year_id', yearId)
           .order('rotation_order')
           .order('name');
@@ -33,6 +35,86 @@ final practicalSubjectsByYearProvider =
         return (a['name'] as String).compareTo(b['name'] as String);
       });
       return list;
+    });
+
+class _PracticalSubjectAttendanceStats {
+  final int assignedSessions;
+  final int achievedMinutes;
+
+  const _PracticalSubjectAttendanceStats({
+    required this.assignedSessions,
+    required this.achievedMinutes,
+  });
+}
+
+int _spentMinutesFromAttendance(Map<String, dynamic> row) {
+  final checkIn = DateTime.tryParse(row['check_in_at'] as String? ?? '');
+  final checkOut = DateTime.tryParse(row['check_out_at'] as String? ?? '');
+  if (checkIn == null || checkOut == null || !checkOut.isAfter(checkIn)) {
+    return 0;
+  }
+  return checkOut.difference(checkIn).inMinutes;
+}
+
+final practicalAttendanceStatsByYearProvider =
+    FutureProvider.family<
+      Map<String, _PracticalSubjectAttendanceStats>,
+      String
+    >((ref, yearId) async {
+      final uid = Supabase.instance.client.auth.currentUser!.id;
+
+      final assignments = await Supabase.instance.client
+          .from('lecture_assignments')
+          .select(
+            'lecture_id, lectures!inner(practical_sessions!inner(subject_id, subjects!inner(year_id)))',
+          )
+          .eq('student_id', uid)
+          .eq('lectures.practical_sessions.subjects.year_id', yearId);
+
+      final lectureToSubject = <String, String>{};
+      final sessionsBySubject = <String, int>{};
+
+      for (final row in (assignments as List)) {
+        final map = Map<String, dynamic>.from(row as Map);
+        final lectureId = map['lecture_id'] as String?;
+        final lecture = map['lectures'] as Map<String, dynamic>?;
+        final session = lecture?['practical_sessions'] as Map<String, dynamic>?;
+        final subjectId = session?['subject_id'] as String?;
+        if (lectureId == null || subjectId == null) continue;
+        lectureToSubject[lectureId] = subjectId;
+        sessionsBySubject[subjectId] = (sessionsBySubject[subjectId] ?? 0) + 1;
+      }
+
+      final achievedMinutesBySubject = <String, int>{};
+      final lectureIds = lectureToSubject.keys.toList();
+      if (lectureIds.isNotEmpty) {
+        final attendanceRows = await Supabase.instance.client
+            .from('practical_attendance')
+            .select('lecture_id, check_in_at, check_out_at')
+            .eq('student_id', uid)
+            .inFilter('lecture_id', lectureIds);
+
+        for (final row in (attendanceRows as List)) {
+          final map = Map<String, dynamic>.from(row as Map);
+          final lectureId = map['lecture_id'] as String?;
+          if (lectureId == null) continue;
+          final subjectId = lectureToSubject[lectureId];
+          if (subjectId == null) continue;
+          final spent = _spentMinutesFromAttendance(map);
+          if (spent <= 0) continue;
+          achievedMinutesBySubject[subjectId] =
+              (achievedMinutesBySubject[subjectId] ?? 0) + spent;
+        }
+      }
+
+      final out = <String, _PracticalSubjectAttendanceStats>{};
+      for (final e in sessionsBySubject.entries) {
+        out[e.key] = _PracticalSubjectAttendanceStats(
+          assignedSessions: e.value,
+          achievedMinutes: achievedMinutesBySubject[e.key] ?? 0,
+        );
+      }
+      return out;
     });
 
 final weeklyAttendanceSubjectIdsProvider =
@@ -66,90 +148,241 @@ final weeklyAttendanceSubjectIdsProvider =
       return ids;
     });
 
-class PracticalSubjectsScreen extends ConsumerWidget {
+class PracticalSubjectsScreen extends ConsumerStatefulWidget {
   final String yearId;
   const PracticalSubjectsScreen({super.key, required this.yearId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final subjectsAsync = ref.watch(practicalSubjectsByYearProvider(yearId));
+  ConsumerState<PracticalSubjectsScreen> createState() =>
+      _PracticalSubjectsScreenState();
+}
+
+class _PracticalSubjectsScreenState
+    extends ConsumerState<PracticalSubjectsScreen> {
+  bool _onlyThisWeek = false;
+
+  String _formatMinutes(int mins) {
+    final h = mins ~/ 60;
+    final m = mins % 60;
+    if (h <= 0) return '$m د';
+    if (m == 0) return '$h س';
+    return '$h س $m د';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final subjectsAsync = ref.watch(
+      practicalSubjectsByYearProvider(widget.yearId),
+    );
     final weeklyAttendanceIds =
-        ref.watch(weeklyAttendanceSubjectIdsProvider(yearId)).valueOrNull ??
+        ref
+            .watch(weeklyAttendanceSubjectIdsProvider(widget.yearId))
+            .valueOrNull ??
         const <String>{};
+    final Map<String, _PracticalSubjectAttendanceStats> attendanceStats =
+        ref
+            .watch(practicalAttendanceStatsByYearProvider(widget.yearId))
+            .valueOrNull ??
+        const <String, _PracticalSubjectAttendanceStats>{};
+
     return Scaffold(
-      appBar: AppBar(title: const Text('الستاجات العملية')),
+      appBar: AppBar(
+        title: const Text('الستاجات العملية'),
+        actions: [
+          IconButton(
+            tooltip: _onlyThisWeek ? 'عرض كل البطاقات' : 'فلترة هذا الأسبوع',
+            onPressed: () => setState(() => _onlyThisWeek = !_onlyThisWeek),
+            icon: Icon(
+              _onlyThisWeek ? Icons.filter_alt : Icons.filter_alt_outlined,
+            ),
+          ),
+        ],
+      ),
       body: subjectsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text(AppErrorMessage.from(e))),
-        data: (subjects) => subjects.isEmpty
-            ? const Center(child: Text('لا توجد ستاجات'))
-            : ListView.separated(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                itemCount: subjects.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 10),
-                itemBuilder: (context, i) {
-                  final s = subjects[i];
-                  final isThisWeek = weeklyAttendanceIds.contains(
-                    s['id'] as String,
-                  );
-                  final location = (s['location'] as String?)?.trim();
-                  return Material(
-                    color: isThisWeek
-                        ? const Color(0xFF059669).withValues(alpha: 0.10)
-                        : AppColors.surface,
-                    borderRadius: BorderRadius.circular(14),
-                    child: InkWell(
+        data: (subjects) {
+          final visible = _onlyThisWeek
+              ? subjects
+                    .where(
+                      (s) => weeklyAttendanceIds.contains(s['id'] as String),
+                    )
+                    .toList()
+              : subjects;
+
+          return visible.isEmpty
+              ? Center(
+                  child: Text(
+                    _onlyThisWeek
+                        ? 'لا توجد بطاقات مطابقة لفلترة هذا الأسبوع'
+                        : 'لا توجد ستاجات',
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  itemCount: visible.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
+                  itemBuilder: (context, i) {
+                    final s = visible[i];
+                    final isThisWeek = weeklyAttendanceIds.contains(
+                      s['id'] as String,
+                    );
+                    final location = (s['location'] as String?)?.trim();
+                    final description = (s['description'] as String?)?.trim();
+                    final subjectId = s['id'] as String;
+                    final neededMinutesRaw = (s['needed_hours'] as num?)
+                        ?.toDouble();
+                    final stats = attendanceStats[subjectId];
+
+                    final neededPerSessionMinutes = neededMinutesRaw == null
+                        ? 0
+                        : neededMinutesRaw.round();
+                    final assignedSessions = stats?.assignedSessions ?? 0;
+                    final achievedMinutes = stats?.achievedMinutes ?? 0;
+                    final int requiredMinutes =
+                        neededPerSessionMinutes * assignedSessions;
+                    final double? progressPct = requiredMinutes > 0
+                        ? ((achievedMinutes / requiredMinutes) * 100).clamp(
+                            0,
+                            100,
+                          )
+                        : null;
+
+                    return Material(
+                      color: isThisWeek
+                          ? const Color(0xFF059669).withValues(alpha: 0.10)
+                          : AppColors.surface,
                       borderRadius: BorderRadius.circular(14),
-                      onTap: () => context.go('/practical/sessions/${s['id']}'),
-                      child: ListTile(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        tileColor: isThisWeek
-                            ? const Color(0xFF059669).withValues(alpha: 0.04)
-                            : null,
-                        leading: CircleAvatar(
-                          backgroundColor: const Color(
-                            0xFF059669,
-                          ).withValues(alpha: 0.12),
-                          child: Text(
-                            '${i + 1}',
-                            style: const TextStyle(fontWeight: FontWeight.w700),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: () =>
+                            context.go('/practical/sessions/$subjectId'),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: isThisWeek
+                                  ? const Color(
+                                      0xFF059669,
+                                    ).withValues(alpha: 0.5)
+                                  : Theme.of(context).colorScheme.outline
+                                        .withValues(alpha: 0.15),
+                            ),
                           ),
-                        ),
-                        title: Text(s['name'] as String),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (location != null && location.isNotEmpty)
-                              Text('📍 $location'),
-                            if (isThisWeek)
-                              const Padding(
-                                padding: EdgeInsets.only(top: 4),
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                backgroundColor: const Color(
+                                  0xFF059669,
+                                ).withValues(alpha: 0.12),
                                 child: Text(
-                                  'لديك حضور هذا الأسبوع',
-                                  style: TextStyle(
-                                    color: Color(0xFF065F46),
+                                  '${i + 1}',
+                                  style: const TextStyle(
                                     fontWeight: FontWeight.w700,
-                                    fontSize: 11,
                                   ),
                                 ),
                               ),
-                          ],
-                        ),
-                        trailing: const Icon(
-                          Icons.arrow_back_ios_rounded,
-                          size: 14,
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      s['name'] as String,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    if (location != null && location.isNotEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              Icons.location_on_outlined,
+                                              size: 14,
+                                              color: Theme.of(
+                                                context,
+                                              ).colorScheme.onSurfaceVariant,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Expanded(
+                                              child: Text(
+                                                location,
+                                                style: TextStyle(
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onSurfaceVariant,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    if (description != null &&
+                                        description.isNotEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: Text(
+                                          description,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onSurfaceVariant,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ),
+                                    if (neededPerSessionMinutes > 0)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 6),
+                                        child: Text(
+                                          assignedSessions <= 0
+                                              ? 'المطلوب/جلسة: ${_formatMinutes(neededPerSessionMinutes)} · غير مفروز بعد'
+                                              : (progressPct == null
+                                                    ? 'المطلوب: ${_formatMinutes(requiredMinutes)}'
+                                                    : 'المطلوب: ${_formatMinutes(requiredMinutes)} · الإنجاز: ${progressPct.toStringAsFixed(1)}%'),
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            color: Color(0xFF065F46),
+                                          ),
+                                        ),
+                                      ),
+                                    if (isThisWeek)
+                                      const Padding(
+                                        padding: EdgeInsets.only(top: 4),
+                                        child: Text(
+                                          'لديك حضور هذا الأسبوع',
+                                          style: TextStyle(
+                                            color: Color(0xFF065F46),
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(
+                                Icons.arrow_back_ios_rounded,
+                                size: 14,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  );
-                },
-              ),
+                    );
+                  },
+                );
+        },
       ),
     );
   }
