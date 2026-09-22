@@ -54,6 +54,7 @@ Deno.serve(async (req: Request) => {
       full_name,
       university_id,
       gender,
+      phone_number,
       role,          // "student" | "resident" | "mini_admin" (never "admin")
       category_id,   // required for student
       order_number,  // required for student
@@ -88,6 +89,13 @@ Deno.serve(async (req: Request) => {
 
     if (role === "student" && !["male", "female"].includes(String(gender))) {
       return json({ error: "gender is required for students and must be 'male' or 'female'" }, 400);
+    }
+
+    if (role === "resident") {
+      const normalizedPhone = String(phone_number ?? "").trim();
+      if (!normalizedPhone) {
+        return json({ error: "phone_number is required for residents" }, 400);
+      }
     }
 
     const normalizedSubjectIds = Array.isArray(subject_ids)
@@ -150,6 +158,9 @@ Deno.serve(async (req: Request) => {
       profileUpdate.category_id  = category_id;
       profileUpdate.order_number = order_number ?? null;
       profileUpdate.gender = gender;
+    }
+    if (role === "resident") {
+      profileUpdate.phone_number = String(phone_number ?? "").trim();
     }
     if (Object.keys(profileUpdate).length > 0) {
       await adminClient

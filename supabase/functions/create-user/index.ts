@@ -25,19 +25,16 @@ Deno.serve(async (req: Request) => {
       return json({ error: "Missing authorization header" }, 401);
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const supabaseUrl   = Deno.env.get("SUPABASE_URL")!;
+    const serviceKey    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const anonKey       = Deno.env.get("SUPABASE_ANON_KEY")!;
 
     // Client that respects caller's JWT (for role check)
     const callerClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
     });
 
-    const {
-      data: { user: caller },
-      error: callerErr,
-    } = await callerClient.auth.getUser();
+    const { data: { user: caller }, error: callerErr } = await callerClient.auth.getUser();
     if (callerErr || !caller) return json({ error: "Unauthorized" }, 401);
 
     const { data: callerProfile, error: profileErr } = await callerClient
@@ -57,11 +54,12 @@ Deno.serve(async (req: Request) => {
       full_name,
       university_id,
       gender,
-      role, // "student" | "resident" | "mini_admin" (never "admin")
-      category_id, // required for student
-      order_number, // required for student
-      subject_id, // legacy single subject input
-      subject_ids, // new multi-subject input
+      phone_number,
+      role,          // "student" | "resident" | "mini_admin" (never "admin")
+      category_id,   // required for student
+      order_number,  // required for student
+      subject_id,    // legacy single subject input
+      subject_ids,   // new multi-subject input
     } = body;
 
     // Validate role — admin accounts can NEVER be created here
@@ -91,6 +89,13 @@ Deno.serve(async (req: Request) => {
 
     if (role === "student" && !["male", "female"].includes(String(gender))) {
       return json({ error: "gender is required for students and must be 'male' or 'female'" }, 400);
+    }
+
+    if (role === "resident") {
+      const normalizedPhone = String(phone_number ?? "").trim();
+      if (!normalizedPhone) {
+        return json({ error: "phone_number is required for residents" }, 400);
+      }
     }
 
     const normalizedSubjectIds = Array.isArray(subject_ids)
@@ -150,13 +155,18 @@ Deno.serve(async (req: Request) => {
       login_reset_mode: "none",
     };
     if (role === "student") {
-      profileUpdate.category_id = category_id;
+      profileUpdate.category_id  = category_id;
       profileUpdate.order_number = order_number ?? null;
       profileUpdate.gender = gender;
     }
-
+    if (role === "resident") {
+      profileUpdate.phone_number = String(phone_number ?? "").trim();
+    }
     if (Object.keys(profileUpdate).length > 0) {
-      await adminClient.from("profiles").update(profileUpdate).eq("id", newUser.user!.id);
+      await adminClient
+        .from("profiles")
+        .update(profileUpdate)
+        .eq("id", newUser.user!.id);
     }
 
     if (role === "resident" || role === "mini_admin") {
@@ -184,6 +194,7 @@ Deno.serve(async (req: Request) => {
       },
       201,
     );
+
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Internal server error";
     return json({ error: message }, 500);

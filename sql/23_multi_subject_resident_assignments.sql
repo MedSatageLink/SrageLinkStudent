@@ -217,6 +217,8 @@ DECLARE
   v_lecture_resident_id  UUID;
   v_lecture_subject_id   UUID;
   v_open_handover_id     UUID;
+  v_claimed_resident_name TEXT;
+  v_claimed_resident_phone TEXT;
 BEGIN
   IF v_uid IS NULL THEN
     RETURN jsonb_build_object('status', 'error', 'message', 'Unauthorized');
@@ -273,7 +275,18 @@ BEGIN
 
     v_lecture_resident_id := v_uid;
   ELSIF v_lecture_resident_id <> v_uid THEN
-    RETURN jsonb_build_object('status', 'error', 'message', 'lecture_claimed_by_other_resident');
+    SELECT p.full_name, p.phone_number
+      INTO v_claimed_resident_name, v_claimed_resident_phone
+    FROM public.profiles p
+    WHERE p.id = v_lecture_resident_id;
+
+    RETURN jsonb_build_object(
+      'status', 'error',
+      'message', 'lecture_claimed_by_other_resident',
+      'claimed_resident_id', v_lecture_resident_id,
+      'claimed_resident_name', v_claimed_resident_name,
+      'claimed_resident_phone', v_claimed_resident_phone
+    );
   END IF;
 
   IF NOT EXISTS (
