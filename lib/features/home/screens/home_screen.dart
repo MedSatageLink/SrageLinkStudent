@@ -647,8 +647,8 @@ class _SubjectsTab extends ConsumerWidget {
                                             assignedSessions <= 0
                                                 ? 'عدد الساعات لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)} '
                                                 : (progressPct == null
-                                                      ? 'المطلوب لكل جلسة: ${_formatMinutes(requiredMinutes)}'
-                                                      : 'المطلوب لكل جلسة: ${_formatMinutes(requiredMinutes)} · الإنجاز: ${progressPct.toStringAsFixed(1)}%'),
+                                                      ? 'المطلوب لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)}'
+                                                      : 'المطلوب لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)} · الإنجاز: ${progressPct.toStringAsFixed(1)}%'),
                                             style: const TextStyle(
                                               color: Color(0xFF065F46),
                                               fontWeight: FontWeight.w700,

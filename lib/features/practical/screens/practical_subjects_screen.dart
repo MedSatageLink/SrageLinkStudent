@@ -347,8 +347,8 @@ class _PracticalSubjectsScreenState
                                           assignedSessions <= 0
                                               ? 'المطلوب لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)} · غير مفروز بعد'
                                               : (progressPct == null
-                                                    ? 'المطلوب لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)} · الإجمالي المطلوب: ${_formatMinutes(requiredMinutes)}'
-                                                    : 'المطلوب لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)} · الإجمالي المطلوب: ${_formatMinutes(requiredMinutes)} · الإنجاز: ${progressPct.toStringAsFixed(1)}%'),
+                                                    ? 'المطلوب لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)}'
+                                                    : 'المطلوب لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)} · الإنجاز: ${progressPct.toStringAsFixed(1)}%'),
                                           style: const TextStyle(
                                             fontSize: 11,
                                             fontWeight: FontWeight.w600,
