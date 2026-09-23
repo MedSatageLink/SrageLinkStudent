@@ -345,10 +345,10 @@ class _PracticalSubjectsScreenState
                                         padding: const EdgeInsets.only(top: 6),
                                         child: Text(
                                           assignedSessions <= 0
-                                              ? 'المطلوب/جلسة: ${_formatMinutes(neededPerSessionMinutes)} · غير مفروز بعد'
+                                              ? 'المطلوب لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)} · غير مفروز بعد'
                                               : (progressPct == null
-                                                    ? 'المطلوب: ${_formatMinutes(requiredMinutes)}'
-                                                    : 'المطلوب: ${_formatMinutes(requiredMinutes)} · الإنجاز: ${progressPct.toStringAsFixed(1)}%'),
+                                                    ? 'المطلوب لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)} · الإجمالي المطلوب: ${_formatMinutes(requiredMinutes)}'
+                                                    : 'المطلوب لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)} · الإجمالي المطلوب: ${_formatMinutes(requiredMinutes)} · الإنجاز: ${progressPct.toStringAsFixed(1)}%'),
                                           style: const TextStyle(
                                             fontSize: 11,
                                             fontWeight: FontWeight.w600,
