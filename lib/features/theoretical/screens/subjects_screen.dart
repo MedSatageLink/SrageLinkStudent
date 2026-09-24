@@ -84,6 +84,7 @@ class TheoreticalSubjectsScreen extends ConsumerWidget {
         data: (subjects) => subjects.isEmpty
             ? const Center(child: Text('لا توجد ستاجات'))
             : ListView.separated(
+                key: PageStorageKey<String>('theoretical_subjects_$yearId'),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 8,
@@ -102,7 +103,8 @@ class TheoreticalSubjectsScreen extends ConsumerWidget {
                     borderRadius: BorderRadius.circular(14),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(14),
-                      onTap: () => context.go('/theoretical/videos/${s['id']}'),
+                      onTap: () =>
+                          context.push('/theoretical/videos/${s['id']}'),
                       child: ListTile(
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),

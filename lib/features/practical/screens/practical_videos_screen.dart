@@ -25,20 +25,28 @@ class PracticalVideosScreen extends ConsumerWidget {
   final String subjectId;
   const PracticalVideosScreen({super.key, required this.subjectId});
 
+  void _goBackToSessionsOrPop(BuildContext context) {
+    if (context.canPop()) {
+      context.pop();
+      return;
+    }
+    context.go('/practical/sessions/$subjectId');
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final videosAsync = ref.watch(practicalVideosBySubjectProvider(subjectId));
 
     return WillPopScope(
       onWillPop: () async {
-        context.go('/practical/sessions/$subjectId');
+        _goBackToSessionsOrPop(context);
         return false;
       },
       child: Scaffold(
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded),
-            onPressed: () => context.go('/practical/sessions/$subjectId'),
+            onPressed: () => _goBackToSessionsOrPop(context),
           ),
           title: const Text('حالات سريرية'),
         ),
@@ -68,7 +76,7 @@ class PracticalVideosScreen extends ConsumerWidget {
                   margin: const EdgeInsets.only(bottom: 10),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(12),
-                    onTap: () => context.go(
+                    onTap: () => context.push(
                       '/practical/video-player/${v['id']}?subjectId=$subjectId',
                     ),
                     child: Padding(

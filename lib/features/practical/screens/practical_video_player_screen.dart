@@ -59,12 +59,18 @@ class _State extends ConsumerState<PracticalVideoPlayerScreen> {
   }
 
   void _goBack() {
-    final sid = widget.subjectId ?? (_video?['subject_id'] as String?);
-    if (sid == null) {
-      Navigator.of(context).maybePop();
+    if (context.canPop()) {
+      context.pop();
       return;
     }
-    context.go('/practical/videos/$sid');
+
+    final sid = widget.subjectId ?? (_video?['subject_id'] as String?);
+    if (sid != null) {
+      context.go('/practical/videos/$sid');
+      return;
+    }
+
+    context.go('/');
   }
 
   @override

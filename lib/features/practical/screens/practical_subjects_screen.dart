@@ -219,6 +219,9 @@ class _PracticalSubjectsScreenState
                   ),
                 )
               : ListView.separated(
+                  key: PageStorageKey<String>(
+                    'practical_subjects_${widget.yearId}',
+                  ),
                   padding: const EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 8,
@@ -259,7 +262,7 @@ class _PracticalSubjectsScreenState
                       child: InkWell(
                         borderRadius: BorderRadius.circular(14),
                         onTap: () =>
-                            context.go('/practical/sessions/$subjectId'),
+                          context.push('/practical/sessions/$subjectId'),
                         child: Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(

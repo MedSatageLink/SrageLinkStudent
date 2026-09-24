@@ -40,6 +40,14 @@ class VideosScreen extends ConsumerWidget {
   final String subjectId;
   const VideosScreen({super.key, required this.subjectId});
 
+  void _goBackToPreviousOrHome(BuildContext context) {
+    if (context.canPop()) {
+      context.pop();
+      return;
+    }
+    context.go('/');
+  }
+
   String _formatDuration(int seconds) {
     final m = (seconds ~/ 60).toString().padLeft(2, '0');
     final s = (seconds % 60).toString().padLeft(2, '0');
@@ -53,7 +61,7 @@ class VideosScreen extends ConsumerWidget {
 
     return WillPopScope(
       onWillPop: () async {
-        context.go('/');
+        _goBackToPreviousOrHome(context);
         return false;
       },
       child: Scaffold(
@@ -62,7 +70,7 @@ class VideosScreen extends ConsumerWidget {
           actions: [
             IconButton(
               icon: const Icon(Icons.arrow_forward_rounded),
-              onPressed: () => context.go('/'),
+              onPressed: () => _goBackToPreviousOrHome(context),
             ),
           ],
         ),
@@ -82,7 +90,8 @@ class VideosScreen extends ConsumerWidget {
                   margin: const EdgeInsets.only(bottom: 10),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(12),
-                    onTap: () => context.go('/theoretical/player/${v['id']}'),
+                    onTap: () =>
+                        context.push('/theoretical/player/${v['id']}'),
                     child: Padding(
                       padding: const EdgeInsets.all(12),
                       child: Row(

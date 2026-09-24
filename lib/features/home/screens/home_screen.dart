@@ -373,7 +373,7 @@ class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen>
                     _SubjectsTab(
                       yearId: yearId,
                       emptyText: 'لا توجد ستاجات نظرية',
-                      onTap: (id) => context.go('/theoretical/videos/$id'),
+                      onTap: (id) => context.push('/theoretical/videos/$id'),
                       leading: const Icon(
                         Icons.play_lesson_outlined,
                         color: AppColors.primary,
@@ -385,7 +385,7 @@ class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen>
                     _SubjectsTab(
                       yearId: yearId,
                       emptyText: 'لا توجد ستاجات عملية',
-                      onTap: (id) => context.go('/practical/sessions/$id'),
+                      onTap: (id) => context.push('/practical/sessions/$id'),
                       leading: const Icon(
                         Icons.science_outlined,
                         color: Color(0xFF059669),
@@ -403,7 +403,7 @@ class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen>
   }
 }
 
-class _SubjectsTab extends ConsumerWidget {
+class _SubjectsTab extends ConsumerStatefulWidget {
   final String yearId;
   final String emptyText;
   final void Function(String id) onTap;
@@ -424,6 +424,15 @@ class _SubjectsTab extends ConsumerWidget {
     required this.onlyThisWeek,
   });
 
+  @override
+  ConsumerState<_SubjectsTab> createState() => _SubjectsTabState();
+}
+
+class _SubjectsTabState extends ConsumerState<_SubjectsTab>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   String _formatMinutes(int mins) {
     final h = mins ~/ 60;
     final m = mins % 60;
@@ -433,17 +442,20 @@ class _SubjectsTab extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final subjectsAsync = ref.watch(subjectsByYearProvider(yearId));
+  Widget build(BuildContext context) {
+    super.build(context);
+    final subjectsAsync = ref.watch(subjectsByYearProvider(widget.yearId));
     final weeklyAttendanceIdsAsync = ref.watch(
-      weeklyAttendanceSubjectIdsProvider(yearId),
+      weeklyAttendanceSubjectIdsProvider(widget.yearId),
     );
     final weeklyAttendanceIds =
         weeklyAttendanceIdsAsync.valueOrNull ?? const <String>{};
     final Map<String, _PracticalSubjectAttendanceStats> attendanceStats =
-        showLocation
+      widget.showLocation
         ? (ref
-                  .watch(practicalAttendanceStatsByYearProvider(yearId))
+                  .watch(
+                    practicalAttendanceStatsByYearProvider(widget.yearId),
+                  )
                   .valueOrNull ??
               const <String, _PracticalSubjectAttendanceStats>{})
         : const <String, _PracticalSubjectAttendanceStats>{};
@@ -454,7 +466,7 @@ class _SubjectsTab extends ConsumerWidget {
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (e, _) => Center(child: Text(AppErrorMessage.from(e))),
             data: (subjects) {
-              final visible = onlyThisWeek
+              final visible = widget.onlyThisWeek
                   ? subjects
                         .where(
                           (s) =>
@@ -466,12 +478,15 @@ class _SubjectsTab extends ConsumerWidget {
               return visible.isEmpty
                   ? Center(
                       child: Text(
-                        onlyThisWeek
+                        widget.onlyThisWeek
                             ? 'لا توجد بطاقات مطابقة لفلترة هذا الأسبوع'
-                            : emptyText,
+                            : widget.emptyText,
                       ),
                     )
                   : ListView.separated(
+                      key: PageStorageKey<String>(
+                        'student_home_subjects_${widget.yearId}_${widget.showLocation ? 'practical' : 'theoretical'}',
+                      ),
                       padding: const EdgeInsets.symmetric(
                         horizontal: 16,
                         vertical: 8,
@@ -517,7 +532,7 @@ class _SubjectsTab extends ConsumerWidget {
                           borderRadius: BorderRadius.circular(14),
                           child: InkWell(
                             borderRadius: BorderRadius.circular(14),
-                            onTap: () => onTap(subjectId),
+                            onTap: () => widget.onTap(subjectId),
                             child: Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 12,
@@ -533,8 +548,8 @@ class _SubjectsTab extends ConsumerWidget {
                                     width: 42,
                                     height: 42,
                                     decoration: BoxDecoration(
-                                      color: leadingBg.withValues(
-                                        alpha: leadingBgOpacity,
+                                      color: widget.leadingBg.withValues(
+                                        alpha: widget.leadingBgOpacity,
                                       ),
                                       shape: BoxShape.circle,
                                     ),
@@ -557,7 +572,7 @@ class _SubjectsTab extends ConsumerWidget {
                                       children: [
                                         Row(
                                           children: [
-                                            leading,
+                                            widget.leading,
                                             const SizedBox(width: 6),
                                             Expanded(
                                               child: Text(
@@ -594,7 +609,7 @@ class _SubjectsTab extends ConsumerWidget {
                                               ),
                                           ],
                                         ),
-                                        if (showLocation &&
+                                        if (widget.showLocation &&
                                             location != null &&
                                             location.isNotEmpty) ...[
                                           const SizedBox(height: 4),
@@ -640,7 +655,7 @@ class _SubjectsTab extends ConsumerWidget {
                                             ),
                                           ),
                                         ],
-                                        if (showLocation &&
+                                        if (widget.showLocation &&
                                             neededPerSessionMinutes > 0) ...[
                                           const SizedBox(height: 6),
                                           Text(

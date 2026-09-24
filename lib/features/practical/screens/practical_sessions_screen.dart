@@ -30,8 +30,9 @@ Future<List<Map<String, dynamic>>> _fetchPracticalSessionsRemote({
   // Get all sessions for this subject
   final sessions = await Supabase.instance.client
       .from('practical_sessions')
-      .select('id, title, prerequisite_video_id')
+      .select('id, title, prerequisite_video_id, order_index, created_at')
       .eq('subject_id', subjectId)
+      .order('order_index')
       .order('created_at');
 
   // Get student's lecture assignments (join through lectures to get session_id)
@@ -109,6 +110,17 @@ Future<List<Map<String, dynamic>>> _fetchPracticalSessionsRemote({
     };
   }).toList();
 
+  result.sort((a, b) {
+    final ao = a['order_index'] as int?;
+    final bo = b['order_index'] as int?;
+    if (ao != null && bo != null) return ao.compareTo(bo);
+    if (ao != null) return -1;
+    if (bo != null) return 1;
+    final an = (a['title'] as String? ?? '').toLowerCase();
+    final bn = (b['title'] as String? ?? '').toLowerCase();
+    return an.compareTo(bn);
+  });
+
   return result;
 }
 
@@ -140,10 +152,27 @@ final practicalSessionsBySubjectProvider =
       ref,
       subjectId,
     ) async {
+      List<Map<String, dynamic>> sortSessions(
+        List<Map<String, dynamic>> list,
+      ) {
+        final out = List<Map<String, dynamic>>.from(list);
+        out.sort((a, b) {
+          final ao = a['order_index'] as int?;
+          final bo = b['order_index'] as int?;
+          if (ao != null && bo != null) return ao.compareTo(bo);
+          if (ao != null) return -1;
+          if (bo != null) return 1;
+          final an = (a['title'] as String? ?? '').toLowerCase();
+          final bn = (b['title'] as String? ?? '').toLowerCase();
+          return an.compareTo(bn);
+        });
+        return out;
+      }
+
       final uid = Supabase.instance.client.auth.currentUser!.id;
       final cached = await _readPracticalSessionsCache(subjectId);
       if (cached != null) {
-        return cached;
+        return sortSessions(cached);
       }
 
       final fresh = await _fetchPracticalSessionsRemote(
@@ -151,7 +180,7 @@ final practicalSessionsBySubjectProvider =
         subjectId: subjectId,
       );
       await _writePracticalSessionsCache(subjectId, fresh);
-      return fresh;
+      return sortSessions(fresh);
     });
 
 class PracticalSessionsScreen extends ConsumerStatefulWidget {
@@ -165,6 +194,14 @@ class PracticalSessionsScreen extends ConsumerStatefulWidget {
 
 class _PracticalSessionsScreenState
     extends ConsumerState<PracticalSessionsScreen> {
+  void _goBackToPreviousOrHome() {
+    if (context.canPop()) {
+      context.pop();
+      return;
+    }
+    context.go('/');
+  }
+
   @override
   void initState() {
     super.initState();
@@ -260,7 +297,7 @@ class _PracticalSessionsScreenState
     );
     return WillPopScope(
       onWillPop: () async {
-        context.go('/');
+        _goBackToPreviousOrHome();
         return false;
       },
       child: Scaffold(
@@ -269,13 +306,13 @@ class _PracticalSessionsScreenState
             icon: const Icon(Icons.ondemand_video_rounded),
             tooltip: 'فيديوهات اختيارية',
             onPressed: () =>
-                context.go('/practical/videos/${widget.subjectId}'),
+                context.push('/practical/videos/${widget.subjectId}'),
           ),
           title: const Text('جلساتي العملية'),
           actions: [
             IconButton(
               icon: const Icon(Icons.arrow_forward_rounded),
-              onPressed: () => context.go('/'),
+              onPressed: _goBackToPreviousOrHome,
             ),
           ],
         ),

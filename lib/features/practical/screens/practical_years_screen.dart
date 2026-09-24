@@ -38,7 +38,7 @@ class PracticalYearsScreen extends ConsumerWidget {
           itemBuilder: (context, i) {
             final y = years[i];
             return InkWell(
-                  onTap: () => context.go('/practical/subjects/${y['id']}'),
+              onTap: () => context.push('/practical/subjects/${y['id']}'),
                   borderRadius: BorderRadius.circular(16),
                   child: Container(
                     decoration: BoxDecoration(
