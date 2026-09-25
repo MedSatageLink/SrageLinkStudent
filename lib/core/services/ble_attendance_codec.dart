@@ -1,20 +1,25 @@
 import 'dart:typed_data';
 
+enum BleAttendanceEventType { checkIn, checkOut }
+
 class BleAttendanceCodec {
   static const int manufacturerId = 0x1234;
   static const String markerServiceUuidShort = 'a100';
   static const String markerServiceUuidFull =
       '0000a100-0000-1000-8000-00805f9b34fb';
-  static const int studentLectureBindingVersion = 3;
+  static const int studentLectureBindingVersion = 4;
 
   static Uint8List buildManufacturerData({
     required String studentId,
     required String lectureId,
+    required BleAttendanceEventType eventType,
   }) {
     final studentBytes = _uuidToBytes(studentId);
     final lectureToken = _lectureToken16(lectureId);
+    final eventCode = eventType == BleAttendanceEventType.checkIn ? 1 : 2;
     return Uint8List.fromList(<int>[
       studentLectureBindingVersion,
+      eventCode,
       ...studentBytes,
       (lectureToken >> 8) & 0xFF,
       lectureToken & 0xFF,

@@ -71,6 +71,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           lectureId: state.pathParameters['lectureId']!,
           subjectId: state.uri.queryParameters['subjectId'],
           seed: state.uri.queryParameters['seed'],
+          eventType: state.uri.queryParameters['eventType'],
         ),
       ),
       GoRoute(

@@ -90,8 +90,7 @@ class VideosScreen extends ConsumerWidget {
                   margin: const EdgeInsets.only(bottom: 10),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(12),
-                    onTap: () =>
-                        context.push('/theoretical/player/${v['id']}'),
+                    onTap: () => context.push('/theoretical/player/${v['id']}'),
                     child: Padding(
                       padding: const EdgeInsets.all(12),
                       child: Row(

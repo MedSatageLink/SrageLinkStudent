@@ -63,11 +63,13 @@ class QrScreen extends ConsumerStatefulWidget {
   final String lectureId;
   final String? subjectId;
   final String? seed;
+  final String? eventType;
   const QrScreen({
     super.key,
     required this.lectureId,
     this.subjectId,
     this.seed,
+    this.eventType,
   });
 
   @override
@@ -81,6 +83,18 @@ class _QrScreenState extends ConsumerState<QrScreen> {
   String? _status;
   Timer? _attendancePollTimer;
   bool _attendanceProbeInFlight = false;
+
+  BleAttendanceEventType _selectedEventType() {
+    return widget.eventType == 'check_out'
+        ? BleAttendanceEventType.checkOut
+        : BleAttendanceEventType.checkIn;
+  }
+
+  _AttendanceProbeTarget _selectedProbeTarget() {
+    return _selectedEventType() == BleAttendanceEventType.checkOut
+        ? _AttendanceProbeTarget.checkOut
+        : _AttendanceProbeTarget.checkIn;
+  }
 
   bool _isGrantedState(PeripheralBluetoothState state) {
     final value = state.toString().toLowerCase();
@@ -205,10 +219,11 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       }
 
       final uid = Supabase.instance.client.auth.currentUser!.id;
-      final probeTarget = await _resolveProbeTarget(uid);
+      final probeTarget = _selectedProbeTarget();
       final payload = BleAttendanceCodec.buildManufacturerData(
         studentId: uid,
         lectureId: widget.lectureId,
+        eventType: _selectedEventType(),
       );
       final serviceUuids = BleAttendanceCodec.buildServiceUuids(studentId: uid);
 
@@ -291,22 +306,6 @@ class _QrScreenState extends ConsumerState<QrScreen> {
     _cancelAttendancePolling();
     unawaited(_stopAdvertising());
     super.dispose();
-  }
-
-  Future<_AttendanceProbeTarget> _resolveProbeTarget(String studentId) async {
-    try {
-      final row = await _fetchAttendanceRow(studentId);
-      if (row == null) return _AttendanceProbeTarget.checkIn;
-
-      final hasCheckIn = row['check_in_at'] != null;
-      final hasCheckOut = row['check_out_at'] != null;
-
-      if (!hasCheckIn) return _AttendanceProbeTarget.checkIn;
-      if (!hasCheckOut) return _AttendanceProbeTarget.checkOut;
-      return _AttendanceProbeTarget.none;
-    } catch (_) {
-      return _AttendanceProbeTarget.checkIn;
-    }
   }
 
   Future<Map<String, dynamic>?> _fetchAttendanceRow(String studentId) async {
@@ -483,9 +482,13 @@ class _QrScreenState extends ConsumerState<QrScreen> {
             as Map<String, dynamic>?)?['title'] ??
         'جلسة عملية';
 
-    const eventTitle = 'إرسال الحضور عبر BLE';
-    const eventHelp =
-        'اضغط بدء الإرسال ثم اقترب من جهاز المقيم. المقيم هو من يحدد تسجيل الدخول أو الخروج';
+    final isCheckOut = _selectedEventType() == BleAttendanceEventType.checkOut;
+    final eventTitle = isCheckOut
+        ? 'إرسال تسجيل الخروج عبر BLE'
+        : 'إرسال تسجيل الدخول عبر BLE';
+    final eventHelp = isCheckOut
+        ? 'اضغط بدء الإرسال ثم اقترب من جهاز المقيم الذي فعّل وضع تسجيل الخروج.'
+        : 'اضغط بدء الإرسال ثم اقترب من جهاز المقيم الذي فعّل وضع تسجيل الدخول.';
 
     return WillPopScope(
       onWillPop: () async {

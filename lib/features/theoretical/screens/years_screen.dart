@@ -39,8 +39,7 @@ class TheoreticalYearsScreen extends ConsumerWidget {
           itemBuilder: (context, i) {
             final y = years[i];
             return InkWell(
-                onTap: () =>
-                  context.push('/theoretical/subjects/${y['id']}'),
+                  onTap: () => context.push('/theoretical/subjects/${y['id']}'),
                   borderRadius: BorderRadius.circular(16),
                   child: Container(
                     decoration: BoxDecoration(

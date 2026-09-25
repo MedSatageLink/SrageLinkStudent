@@ -262,7 +262,7 @@ class _PracticalSubjectsScreenState
                       child: InkWell(
                         borderRadius: BorderRadius.circular(14),
                         onTap: () =>
-                          context.push('/practical/sessions/$subjectId'),
+                            context.push('/practical/sessions/$subjectId'),
                         child: Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(

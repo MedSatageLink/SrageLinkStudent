@@ -451,11 +451,9 @@ class _SubjectsTabState extends ConsumerState<_SubjectsTab>
     final weeklyAttendanceIds =
         weeklyAttendanceIdsAsync.valueOrNull ?? const <String>{};
     final Map<String, _PracticalSubjectAttendanceStats> attendanceStats =
-      widget.showLocation
+        widget.showLocation
         ? (ref
-                  .watch(
-                    practicalAttendanceStatsByYearProvider(widget.yearId),
-                  )
+                  .watch(practicalAttendanceStatsByYearProvider(widget.yearId))
                   .valueOrNull ??
               const <String, _PracticalSubjectAttendanceStats>{})
         : const <String, _PracticalSubjectAttendanceStats>{};

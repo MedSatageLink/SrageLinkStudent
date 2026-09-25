@@ -152,9 +152,7 @@ final practicalSessionsBySubjectProvider =
       ref,
       subjectId,
     ) async {
-      List<Map<String, dynamic>> sortSessions(
-        List<Map<String, dynamic>> list,
-      ) {
+      List<Map<String, dynamic>> sortSessions(List<Map<String, dynamic>> list) {
         final out = List<Map<String, dynamic>>.from(list);
         out.sort((a, b) {
           final ao = a['order_index'] as int?;
@@ -194,6 +192,20 @@ class PracticalSessionsScreen extends ConsumerStatefulWidget {
 
 class _PracticalSessionsScreenState
     extends ConsumerState<PracticalSessionsScreen> {
+  ButtonStyle _compactBleButtonStyle(BuildContext context) {
+    final buttonTextStyle = Theme.of(context).textTheme.labelLarge?.copyWith(
+      fontSize: 13,
+      fontWeight: FontWeight.w600,
+      height: 1.1,
+    );
+
+    return ElevatedButton.styleFrom(
+      minimumSize: const Size.fromHeight(40),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      textStyle: buttonTextStyle,
+    );
+  }
+
   void _goBackToPreviousOrHome() {
     if (context.canPop()) {
       context.pop();
@@ -237,6 +249,7 @@ class _PracticalSessionsScreenState
     required String lectureId,
     required Map<String, dynamic> lecture,
     required String sessionTitle,
+    required String eventType,
   }) async {
     final seedMap = _buildQrSeed(lecture, sessionTitle);
     final seedJson = jsonEncode(seedMap);
@@ -248,7 +261,7 @@ class _PracticalSessionsScreenState
     final seedEncoded = Uri.encodeComponent(seedJson);
     if (!context.mounted) return;
     context.go(
-      '/practical/qr/$lectureId?subjectId=$subjectId&seed=$seedEncoded',
+      '/practical/qr/$lectureId?subjectId=$subjectId&seed=$seedEncoded&eventType=$eventType',
     );
   }
 
@@ -477,20 +490,64 @@ class _PracticalSessionsScreenState
                                 ),
                                 if (!isCompleted) ...[
                                   const Gap(10),
-                                  SizedBox(
-                                    width: double.infinity,
-                                    child: ElevatedButton.icon(
-                                      onPressed: () => _openQr(
-                                        context,
-                                        subjectId: widget.subjectId,
-                                        lectureId:
-                                            assignment!['lecture_id'] as String,
-                                        lecture: lecture,
-                                        sessionTitle: s['title'] as String,
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: ElevatedButton.icon(
+                                          style: _compactBleButtonStyle(
+                                            context,
+                                          ),
+                                          onPressed: () => _openQr(
+                                            context,
+                                            subjectId: widget.subjectId,
+                                            lectureId:
+                                                assignment!['lecture_id']
+                                                    as String,
+                                            lecture: lecture,
+                                            sessionTitle: s['title'] as String,
+                                            eventType: 'check_in',
+                                          ),
+                                          icon: const Icon(
+                                            Icons.login_rounded,
+                                            size: 18,
+                                          ),
+                                          label: const Text(
+                                            'تسجيل دخول',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.fade,
+                                            softWrap: false,
+                                          ),
+                                        ),
                                       ),
-                                      icon: const Icon(Icons.send_rounded),
-                                      label: const Text('بدء الإرسال عبر BLE'),
-                                    ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: ElevatedButton.icon(
+                                          style: _compactBleButtonStyle(
+                                            context,
+                                          ),
+                                          onPressed: () => _openQr(
+                                            context,
+                                            subjectId: widget.subjectId,
+                                            lectureId:
+                                                assignment!['lecture_id']
+                                                    as String,
+                                            lecture: lecture,
+                                            sessionTitle: s['title'] as String,
+                                            eventType: 'check_out',
+                                          ),
+                                          icon: const Icon(
+                                            Icons.logout_rounded,
+                                            size: 18,
+                                          ),
+                                          label: const Text(
+                                            'تسجيل خروج',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.fade,
+                                            softWrap: false,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ],

@@ -79,3 +79,69 @@ CREATE POLICY "profiles_select" ON public.profiles
       )
     )
   );
+
+-- 3) Secure helper RPC: resident fetches current lecture owner contact
+--    (only if resident is assigned to the same subject)
+CREATE OR REPLACE FUNCTION public.get_lecture_owner_contact_for_handover(
+  p_lecture_id UUID
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid UUID := auth.uid();
+  v_role user_role;
+  v_owner_id UUID;
+  v_subject_id UUID;
+  v_owner_name TEXT;
+  v_owner_phone TEXT;
+BEGIN
+  IF v_uid IS NULL THEN
+    RETURN jsonb_build_object('status', 'unauthorized');
+  END IF;
+
+  SELECT role INTO v_role
+  FROM public.profiles
+  WHERE id = v_uid;
+
+  IF v_role IS DISTINCT FROM 'resident'::user_role THEN
+    RETURN jsonb_build_object('status', 'forbidden');
+  END IF;
+
+  SELECT l.resident_id, ps.subject_id
+  INTO v_owner_id, v_subject_id
+  FROM public.lectures l
+  JOIN public.practical_sessions ps
+    ON ps.id = l.practical_session_id
+  WHERE l.id = p_lecture_id;
+
+  IF v_subject_id IS NULL THEN
+    RETURN jsonb_build_object('status', 'lecture_not_found');
+  END IF;
+
+  IF NOT public.has_subject_assignment(v_uid, v_subject_id) THEN
+    RETURN jsonb_build_object('status', 'forbidden_subject');
+  END IF;
+
+  IF v_owner_id IS NULL THEN
+    RETURN jsonb_build_object('status', 'unclaimed');
+  END IF;
+
+  SELECT p.full_name, p.phone_number
+  INTO v_owner_name, v_owner_phone
+  FROM public.profiles p
+  WHERE p.id = v_owner_id;
+
+  RETURN jsonb_build_object(
+    'status', 'ok',
+    'resident_id', v_owner_id,
+    'resident_name', v_owner_name,
+    'resident_phone', v_owner_phone
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_lecture_owner_contact_for_handover(UUID)
+TO authenticated;
