@@ -225,7 +225,11 @@ class _QrScreenState extends ConsumerState<QrScreen> {
         lectureId: widget.lectureId,
         eventType: _selectedEventType(),
       );
-      final serviceUuids = BleAttendanceCodec.buildServiceUuids(studentId: uid);
+      final serviceUuids = BleAttendanceCodec.buildServiceUuidsForBroadcast(
+        studentId: uid,
+        lectureId: widget.lectureId,
+        eventType: _selectedEventType(),
+      );
 
       final advertiseData = AdvertiseDataCore(
         serviceUuids: serviceUuids,

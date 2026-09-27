@@ -27,7 +27,23 @@ class BleAttendanceCodec {
   }
 
   static List<String> buildServiceUuids({required String studentId}) {
-    return <String>[markerServiceUuidShort];
+    // Include marker and the student's UUID so receivers can identify sender reliably
+    // Also include a placeholder slot for lecture-token+event encoded as 8-hex string
+    // (constructed by caller via overloaded method when needed).
+    return <String>[markerServiceUuidShort, studentId];
+  }
+
+  static List<String> buildServiceUuidsForBroadcast({
+    required String studentId,
+    required String lectureId,
+    required BleAttendanceEventType eventType,
+  }) {
+    final token = _lectureToken16(lectureId);
+    final tokenHex = token.toRadixString(16).padLeft(4, '0');
+    final eventCode = eventType == BleAttendanceEventType.checkIn ? 1 : 2;
+    final eventHex = eventCode.toRadixString(16).padLeft(2, '0');
+    final combined = (tokenHex + eventHex + '00').toLowerCase(); // 8 chars
+    return <String>[markerServiceUuidShort, normalizeUuid(studentId), combined];
   }
 
   static int lectureToken16(String lectureId) => _lectureToken16(lectureId);
