@@ -83,6 +83,9 @@ class _QrScreenState extends ConsumerState<QrScreen> {
   String? _status;
   Timer? _attendancePollTimer;
   bool _attendanceProbeInFlight = false;
+  Timer? _autoStartRetryTimer;
+  int _autoStartAttempts = 0;
+  bool _autoStartEnabled = true;
 
   BleAttendanceEventType _selectedEventType() {
     return widget.eventType == 'check_out'
@@ -110,6 +113,34 @@ class _QrScreenState extends ConsumerState<QrScreen> {
   void initState() {
     super.initState();
     unawaited(_startAdvertising());
+    _scheduleAutoStartRetry();
+  }
+
+  void _scheduleAutoStartRetry() {
+    _autoStartRetryTimer?.cancel();
+    _autoStartRetryTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (!_autoStartEnabled) {
+        timer.cancel();
+        return;
+      }
+      if (_isAdvertising) {
+        timer.cancel();
+        return;
+      }
+      if (_isBusy) {
+        return;
+      }
+      if (_autoStartAttempts >= 3) {
+        timer.cancel();
+        return;
+      }
+      _autoStartAttempts++;
+      unawaited(_startAdvertising());
+    });
   }
 
   Map<String, dynamic>? _parseSeed() {
@@ -283,6 +314,7 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       });
 
       if (started) {
+        _autoStartRetryTimer?.cancel();
         _startAttendancePolling(studentId: uid, probeTarget: probeTarget);
       }
     } catch (_) {
@@ -308,6 +340,7 @@ class _QrScreenState extends ConsumerState<QrScreen> {
   @override
   void dispose() {
     _cancelAttendancePolling();
+    _autoStartRetryTimer?.cancel();
     unawaited(_stopAdvertising());
     super.dispose();
   }
@@ -576,8 +609,16 @@ class _QrScreenState extends ConsumerState<QrScreen> {
                           onPressed: _isBusy
                               ? null
                               : (_isAdvertising
-                                    ? _stopAdvertising
-                                    : _startAdvertising),
+                                    ? () {
+                                        _autoStartEnabled = false;
+                                        unawaited(_stopAdvertising());
+                                      }
+                                    : () {
+                                        _autoStartEnabled = true;
+                                        _autoStartAttempts = 0;
+                                        unawaited(_startAdvertising());
+                                        _scheduleAutoStartRetry();
+                                      }),
                           icon: Icon(
                             _isAdvertising
                                 ? Icons.stop_circle_outlined
