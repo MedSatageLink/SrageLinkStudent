@@ -193,7 +193,12 @@ class _QrScreenState extends ConsumerState<QrScreen> {
     return '$dateStr · $timeStr$durStr';
   }
 
-  void _goBack(BuildContext context, Map<String, dynamic>? lecture) {
+  void _goBack(
+    BuildContext context,
+    Map<String, dynamic>? lecture, {
+    int? ackStatusCode,
+    BleAttendanceEventType? ackEventType,
+  }) {
     final sid =
         widget.subjectId ??
         (lecture?['subject_id'] as String?) ??
@@ -203,7 +208,20 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       Navigator.of(context).maybePop();
       return;
     }
-    context.go('/practical/sessions/$sid');
+
+    final query = <String, String>{};
+    if (ackStatusCode != null && ackEventType != null) {
+      query['ack'] = ackStatusCode == 2 ? 'queued' : 'success';
+      query['eventType'] = ackEventType == BleAttendanceEventType.checkOut
+          ? 'check_out'
+          : 'check_in';
+    }
+
+    final uri = Uri(
+      path: '/practical/sessions/$sid',
+      queryParameters: query.isEmpty ? null : query,
+    );
+    context.go(uri.toString());
   }
 
   Future<void> _startAdvertising() async {
@@ -262,16 +280,17 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       _requestNonce16 = _nextRequestNonce16();
       _ackHandled = false;
       final probeTarget = _selectedProbeTarget();
+      final eventType = _selectedEventType();
       final payload = BleAttendanceCodec.buildManufacturerData(
         studentId: uid,
         lectureId: widget.lectureId,
-        eventType: _selectedEventType(),
+        eventType: eventType,
         requestNonce16: _requestNonce16,
       );
       final serviceUuids = BleAttendanceCodec.buildServiceUuidsForBroadcast(
         studentId: uid,
         lectureId: widget.lectureId,
-        eventType: _selectedEventType(),
+        eventType: eventType,
         requestNonce16: _requestNonce16,
       );
 
@@ -405,9 +424,15 @@ class _QrScreenState extends ConsumerState<QrScreen> {
         studentId: studentId,
       );
       if (ack == null) continue;
-      if (ack.lectureToken16 != expectedToken) continue;
-      if (ack.eventType != expectedEvent) continue;
-      if (ack.requestNonce16 != _requestNonce16) continue;
+      if (ack.lectureToken16 != expectedToken) {
+        continue;
+      }
+      if (ack.eventType != expectedEvent) {
+        continue;
+      }
+      if (ack.requestNonce16 != _requestNonce16) {
+        continue;
+      }
 
       _ackHandled = true;
       if (!mounted) return;
@@ -424,7 +449,12 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       await Future<void>.delayed(const Duration(milliseconds: 500));
       await _stopAdvertising();
       if (!mounted || !context.mounted) return;
-      _goBack(context, null);
+      _goBack(
+        context,
+        null,
+        ackStatusCode: ack.statusCode,
+        ackEventType: expectedEvent,
+      );
       return;
     }
   }
@@ -584,7 +614,14 @@ class _QrScreenState extends ConsumerState<QrScreen> {
 
       await _stopAdvertising();
       if (!mounted || !context.mounted) return true;
-      _goBack(context, null);
+      _goBack(
+        context,
+        null,
+        ackStatusCode: 1,
+        ackEventType: target == _AttendanceProbeTarget.checkOut
+            ? BleAttendanceEventType.checkOut
+            : BleAttendanceEventType.checkIn,
+      );
       return true;
     } catch (_) {
       return false;

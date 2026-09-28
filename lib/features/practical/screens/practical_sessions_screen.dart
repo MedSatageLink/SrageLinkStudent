@@ -183,7 +183,15 @@ final practicalSessionsBySubjectProvider =
 
 class PracticalSessionsScreen extends ConsumerStatefulWidget {
   final String subjectId;
-  const PracticalSessionsScreen({super.key, required this.subjectId});
+  final String? ackResult;
+  final String? ackEventType;
+
+  const PracticalSessionsScreen({
+    super.key,
+    required this.subjectId,
+    this.ackResult,
+    this.ackEventType,
+  });
 
   @override
   ConsumerState<PracticalSessionsScreen> createState() =>
@@ -192,6 +200,8 @@ class PracticalSessionsScreen extends ConsumerStatefulWidget {
 
 class _PracticalSessionsScreenState
     extends ConsumerState<PracticalSessionsScreen> {
+  bool _didShowAckMessage = false;
+
   ButtonStyle _compactBleButtonStyle(BuildContext context) {
     final buttonTextStyle = Theme.of(context).textTheme.labelLarge?.copyWith(
       fontSize: 13,
@@ -218,6 +228,37 @@ class _PracticalSessionsScreenState
   void initState() {
     super.initState();
     unawaited(_refreshInBackgroundOnce());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showAckMessageIfAny();
+    });
+  }
+
+  void _showAckMessageIfAny() {
+    if (!mounted || _didShowAckMessage) return;
+
+    final ackResult = widget.ackResult;
+    final ackEventType = widget.ackEventType;
+    if (ackResult == null || ackEventType == null) return;
+
+    final isCheckOut = ackEventType == 'check_out';
+    final isQueued = ackResult == 'queued';
+
+    final text = isQueued
+        ? (isCheckOut
+              ? 'تم استلام تسجيل الخروج وسيتم رفعه عند توفر الإنترنت ✓'
+              : 'تم استلام تسجيل الدخول وسيتم رفعه عند توفر الإنترنت ✓')
+        : (isCheckOut ? 'تم تسجيل الخروج بنجاح ✓' : 'تم تسجيل الدخول بنجاح ✓');
+
+    _didShowAckMessage = true;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(text),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
   }
 
   Future<void> _refreshInBackgroundOnce() async {

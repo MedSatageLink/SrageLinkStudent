@@ -63,6 +63,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/practical/sessions/:subjectId',
         builder: (_, state) => PracticalSessionsScreen(
           subjectId: state.pathParameters['subjectId']!,
+          ackResult: state.uri.queryParameters['ack'],
+          ackEventType: state.uri.queryParameters['eventType'],
         ),
       ),
       GoRoute(

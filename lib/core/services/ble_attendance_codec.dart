@@ -75,9 +75,7 @@ class BleAttendanceCodec {
     required Iterable<String> serviceUuids,
     required String studentId,
   }) {
-    final normalizedStudent = normalizeUuid(studentId);
     bool hasMarker = false;
-    bool hasStudent = false;
     int? token;
     int? eventCode;
     int? statusCode;
@@ -88,12 +86,9 @@ class BleAttendanceCodec {
       if (n == markerServiceUuidFull) {
         hasMarker = true;
       }
-      if (n == normalizedStudent) {
-        hasStudent = true;
-      }
     }
 
-    if (!hasMarker || !hasStudent) return null;
+    if (!hasMarker) return null;
 
     Iterable<String> payloadCandidates() sync* {
       const baseSuffix = '00001000800000805f9b34fb';
@@ -110,7 +105,6 @@ class BleAttendanceCodec {
     }
 
     for (final clean in payloadCandidates()) {
-
       // ACK meta: [token_hi2][token_lo2][event][status]
       try {
         final t = int.parse(clean.substring(0, 4), radix: 16);
@@ -131,7 +125,10 @@ class BleAttendanceCodec {
       }
     }
 
-    if (token == null || eventCode == null || statusCode == null || nonce == null) {
+    if (token == null ||
+        eventCode == null ||
+        statusCode == null ||
+        nonce == null) {
       return null;
     }
 
