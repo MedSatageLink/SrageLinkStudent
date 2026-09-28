@@ -95,9 +95,21 @@ class BleAttendanceCodec {
 
     if (!hasMarker || !hasStudent) return null;
 
-    for (final raw in serviceUuids) {
-      final clean = raw.replaceAll('-', '').toLowerCase();
-      if (clean.length != 8) continue;
+    Iterable<String> payloadCandidates() sync* {
+      const baseSuffix = '00001000800000805f9b34fb';
+      for (final raw in serviceUuids) {
+        final clean = raw.replaceAll('-', '').toLowerCase();
+        if (clean.length == 8) {
+          yield clean;
+          continue;
+        }
+        if (clean.length == 32 && clean.endsWith(baseSuffix)) {
+          yield clean.substring(0, 8);
+        }
+      }
+    }
+
+    for (final clean in payloadCandidates()) {
 
       // ACK meta: [token_hi2][token_lo2][event][status]
       try {
