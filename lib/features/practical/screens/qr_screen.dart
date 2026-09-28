@@ -4,6 +4,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:gap/gap.dart';
@@ -86,6 +87,14 @@ class _QrScreenState extends ConsumerState<QrScreen> {
   Timer? _autoStartRetryTimer;
   int _autoStartAttempts = 0;
   bool _autoStartEnabled = true;
+  StreamSubscription<List<ScanResult>>? _ackScanSub;
+  int _requestNonce16 = 0;
+  bool _ackHandled = false;
+
+  int _nextRequestNonce16() {
+    final raw = DateTime.now().microsecondsSinceEpoch & 0xFFFF;
+    return raw == 0 ? 1 : raw;
+  }
 
   BleAttendanceEventType _selectedEventType() {
     return widget.eventType == 'check_out'
@@ -250,16 +259,20 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       }
 
       final uid = Supabase.instance.client.auth.currentUser!.id;
+      _requestNonce16 = _nextRequestNonce16();
+      _ackHandled = false;
       final probeTarget = _selectedProbeTarget();
       final payload = BleAttendanceCodec.buildManufacturerData(
         studentId: uid,
         lectureId: widget.lectureId,
         eventType: _selectedEventType(),
+        requestNonce16: _requestNonce16,
       );
       final serviceUuids = BleAttendanceCodec.buildServiceUuidsForBroadcast(
         studentId: uid,
         lectureId: widget.lectureId,
         eventType: _selectedEventType(),
+        requestNonce16: _requestNonce16,
       );
 
       final advertiseData = AdvertiseDataCore(
@@ -316,6 +329,7 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       if (started) {
         _autoStartRetryTimer?.cancel();
         _startAttendancePolling(studentId: uid, probeTarget: probeTarget);
+        unawaited(_startAckListening(uid));
       }
     } catch (_) {
       setState(() {
@@ -330,11 +344,89 @@ class _QrScreenState extends ConsumerState<QrScreen> {
 
   Future<void> _stopAdvertising() async {
     _cancelAttendancePolling();
+    await _stopAckListening();
     try {
       await _peripheral.stop();
     } catch (_) {}
     if (!mounted) return;
     setState(() => _isAdvertising = false);
+  }
+
+  Future<void> _startAckListening(String studentId) async {
+    try {
+      if (!await FlutterBluePlus.isSupported) return;
+
+      final adapterState = await FlutterBluePlus.adapterState.first;
+      if (adapterState != BluetoothAdapterState.on) {
+        try {
+          await FlutterBluePlus.turnOn();
+        } catch (_) {
+          return;
+        }
+      }
+
+      await FlutterBluePlus.stopScan();
+      await _ackScanSub?.cancel();
+      _ackScanSub = FlutterBluePlus.onScanResults.listen(
+        (results) => _onAckScanResults(results, studentId),
+        onError: (_) {},
+      );
+      await FlutterBluePlus.startScan(
+        timeout: const Duration(days: 1),
+        androidUsesFineLocation: false,
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _stopAckListening() async {
+    try {
+      await FlutterBluePlus.stopScan();
+    } catch (_) {}
+    await _ackScanSub?.cancel();
+    _ackScanSub = null;
+  }
+
+  Future<void> _onAckScanResults(
+    List<ScanResult> results,
+    String studentId,
+  ) async {
+    if (_ackHandled || !_isAdvertising) return;
+    final expectedToken = BleAttendanceCodec.lectureToken16(widget.lectureId);
+    final expectedEvent = _selectedEventType();
+
+    for (final result in results) {
+      final serviceUuids = result.advertisementData.serviceUuids
+          .map((g) => g.toString())
+          .toList();
+      if (serviceUuids.isEmpty) continue;
+
+      final ack = BleAttendanceCodec.parseAckFromServiceUuids(
+        serviceUuids: serviceUuids,
+        studentId: studentId,
+      );
+      if (ack == null) continue;
+      if (ack.lectureToken16 != expectedToken) continue;
+      if (ack.eventType != expectedEvent) continue;
+      if (ack.requestNonce16 != _requestNonce16) continue;
+
+      _ackHandled = true;
+      if (!mounted) return;
+      setState(() {
+        _status = ack.statusCode == 1
+            ? (expectedEvent == BleAttendanceEventType.checkIn
+                  ? 'لقد تم تسجيل الدخول بنجاح ✓'
+                  : 'لقد تم تسجيل الخروج بنجاح ✓')
+            : (expectedEvent == BleAttendanceEventType.checkIn
+                  ? 'تم استلام تسجيل الدخول وسيتم رفعه عند توفر الإنترنت ✓'
+                  : 'تم استلام تسجيل الخروج وسيتم رفعه عند توفر الإنترنت ✓');
+      });
+
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      await _stopAdvertising();
+      if (!mounted || !context.mounted) return;
+      _goBack(context, null);
+      return;
+    }
   }
 
   @override
