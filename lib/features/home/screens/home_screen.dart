@@ -37,13 +37,6 @@ final studentProfileProvider = FutureProvider<Map<String, dynamic>>((
   final cachedRaw = prefs.getString(cacheKey);
   if (cachedRaw != null) {
     final cached = Map<String, dynamic>.from(jsonDecode(cachedRaw) as Map);
-    unawaited(
-      fetchRemote()
-          .then((fresh) async {
-            await prefs.setString(cacheKey, jsonEncode(fresh));
-          })
-          .catchError((_) {}),
-    );
     return cached;
   }
 
@@ -92,14 +85,6 @@ final subjectsByYearProvider =
       if (cachedRaw != null) {
         final cachedList = List<Map<String, dynamic>>.from(
           (jsonDecode(cachedRaw) as List).cast<Map<String, dynamic>>(),
-        );
-
-        unawaited(
-          fetchRemote()
-              .then((fresh) async {
-                await prefs.setString(cacheKey, jsonEncode(fresh));
-              })
-              .catchError((_) {}),
         );
 
         return sortSubjects(cachedList);
@@ -234,7 +219,6 @@ class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen>
   late final TabController _tabController;
   bool _tabReady = false;
   bool _onlyThisWeek = false;
-  Timer? _deviceLockTimer;
   bool _checkingDeviceLock = false;
   bool _forcedLogout = false;
 
@@ -246,10 +230,6 @@ class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen>
     _tabController.addListener(_persistSelectedTab);
     _loadSavedTab();
     unawaited(_enforceDeviceLock());
-    _deviceLockTimer = Timer.periodic(
-      const Duration(seconds: 45),
-      (_) => unawaited(_enforceDeviceLock()),
-    );
   }
 
   @override
@@ -316,7 +296,6 @@ class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _deviceLockTimer?.cancel();
     _tabController.removeListener(_persistSelectedTab);
     _tabController.dispose();
     super.dispose();
@@ -343,6 +322,11 @@ class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen>
           appBar: AppBar(
             title: const Text('StageLink'),
             actions: [
+              IconButton(
+                tooltip: 'معدل الإنجاز',
+                icon: const Icon(Icons.analytics_outlined),
+                onPressed: () => context.push('/practical/progress'),
+              ),
               IconButton(
                 tooltip: _onlyThisWeek
                     ? 'عرض كل البطاقات'
@@ -441,6 +425,21 @@ class _SubjectsTabState extends ConsumerState<_SubjectsTab>
     return '$h س $m د';
   }
 
+  Future<void> _manualRefresh() async {
+    ref.invalidate(subjectsByYearProvider(widget.yearId));
+    ref.invalidate(weeklyAttendanceSubjectIdsProvider(widget.yearId));
+    if (widget.showLocation) {
+      ref.invalidate(practicalAttendanceStatsByYearProvider(widget.yearId));
+    }
+
+    await Future.wait<void>([
+      ref.read(subjectsByYearProvider(widget.yearId).future),
+      ref.read(weeklyAttendanceSubjectIdsProvider(widget.yearId).future),
+      if (widget.showLocation)
+        ref.read(practicalAttendanceStatsByYearProvider(widget.yearId).future),
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -473,216 +472,226 @@ class _SubjectsTabState extends ConsumerState<_SubjectsTab>
                         .toList()
                   : subjects;
 
-              return visible.isEmpty
-                  ? Center(
-                      child: Text(
-                        widget.onlyThisWeek
-                            ? 'لا توجد بطاقات مطابقة لفلترة هذا الأسبوع'
-                            : widget.emptyText,
+              if (visible.isEmpty) {
+                return RefreshIndicator(
+                  onRefresh: _manualRefresh,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.4,
+                        child: Center(
+                          child: Text(
+                            widget.onlyThisWeek
+                                ? 'لا توجد بطاقات مطابقة لفلترة هذا الأسبوع'
+                                : widget.emptyText,
+                          ),
+                        ),
                       ),
-                    )
-                  : ListView.separated(
-                      key: PageStorageKey<String>(
-                        'student_home_subjects_${widget.yearId}_${widget.showLocation ? 'practical' : 'theoretical'}',
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      itemCount: visible.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 10),
-                      itemBuilder: (context, i) {
-                        final s = visible[i];
-                        final subjectId = s['id'] as String;
-                        final isThisWeek = weeklyAttendanceIds.contains(
-                          subjectId,
-                        );
-                        final description = s['description'] as String?;
-                        final location = (s['location'] as String?)?.trim();
-                        final stats = attendanceStats[subjectId];
-                        final neededMinutesRaw = (s['needed_hours'] as num?)
-                            ?.toDouble();
-                        final neededPerSessionMinutes = neededMinutesRaw == null
-                            ? 0
-                            : neededMinutesRaw.round();
-                        final assignedSessions = stats?.assignedSessions ?? 0;
-                        final achievedMinutes = stats?.achievedMinutes ?? 0;
-                        final int requiredMinutes =
-                            neededPerSessionMinutes * assignedSessions;
-                        final double? progressPct = requiredMinutes > 0
-                            ? ((achievedMinutes / requiredMinutes) * 100).clamp(
-                                0,
-                                100,
-                              )
-                            : null;
+                    ],
+                  ),
+                );
+              }
 
-                        final cardBg = isThisWeek
-                            ? const Color(0xFF059669).withValues(alpha: 0.10)
-                            : Theme.of(context).colorScheme.surface;
-                        final borderColor = isThisWeek
-                            ? const Color(0xFF059669).withValues(alpha: 0.55)
-                            : Theme.of(
-                                context,
-                              ).colorScheme.outline.withValues(alpha: 0.15);
+              return RefreshIndicator(
+                onRefresh: _manualRefresh,
+                child: ListView.separated(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  key: PageStorageKey<String>(
+                    'student_home_subjects_${widget.yearId}_${widget.showLocation ? 'practical' : 'theoretical'}',
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  itemCount: visible.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
+                  itemBuilder: (context, i) {
+                    final s = visible[i];
+                    final subjectId = s['id'] as String;
+                    final isThisWeek = weeklyAttendanceIds.contains(subjectId);
+                    final description = s['description'] as String?;
+                    final location = (s['location'] as String?)?.trim();
+                    final stats = attendanceStats[subjectId];
+                    final neededMinutesRaw = (s['needed_hours'] as num?)
+                        ?.toDouble();
+                    final neededPerSessionMinutes = neededMinutesRaw == null
+                        ? 0
+                        : neededMinutesRaw.round();
+                    final assignedSessions = stats?.assignedSessions ?? 0;
+                    final achievedMinutes = stats?.achievedMinutes ?? 0;
+                    final int requiredMinutes =
+                        neededPerSessionMinutes * assignedSessions;
+                    final double? progressPct = requiredMinutes > 0
+                        ? ((achievedMinutes / requiredMinutes) * 100).clamp(
+                            0,
+                            100,
+                          )
+                        : null;
 
-                        return Material(
-                          color: cardBg,
-                          borderRadius: BorderRadius.circular(14),
-                          child: InkWell(
+                    final cardBg = isThisWeek
+                        ? const Color(0xFF059669).withValues(alpha: 0.10)
+                        : Theme.of(context).colorScheme.surface;
+                    final borderColor = isThisWeek
+                        ? const Color(0xFF059669).withValues(alpha: 0.55)
+                        : Theme.of(
+                            context,
+                          ).colorScheme.outline.withValues(alpha: 0.15);
+
+                    return Material(
+                      color: cardBg,
+                      borderRadius: BorderRadius.circular(14),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: () => widget.onTap(subjectId),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(14),
-                            onTap: () => widget.onTap(subjectId),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 12,
-                              ),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(color: borderColor),
-                              ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 42,
-                                    height: 42,
-                                    decoration: BoxDecoration(
-                                      color: widget.leadingBg.withValues(
-                                        alpha: widget.leadingBgOpacity,
-                                      ),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    alignment: Alignment.center,
-                                    child: Text(
-                                      '${i + 1}',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.onSurface,
-                                      ),
-                                    ),
+                            border: Border.all(color: borderColor),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 42,
+                                height: 42,
+                                decoration: BoxDecoration(
+                                  color: widget.leadingBg.withValues(
+                                    alpha: widget.leadingBgOpacity,
                                   ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                                  shape: BoxShape.circle,
+                                ),
+                                alignment: Alignment.center,
+                                child: Text(
+                                  '${i + 1}',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurface,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
                                       children: [
-                                        Row(
-                                          children: [
-                                            widget.leading,
-                                            const SizedBox(width: 6),
-                                            Expanded(
-                                              child: Text(
-                                                s['name'] as String,
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.w700,
-                                                ),
+                                        widget.leading,
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: Text(
+                                            s['name'] as String,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ),
+                                        if (isThisWeek)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 3,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: const Color(
+                                                0xFF059669,
+                                              ).withValues(alpha: 0.14),
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
+                                            ),
+                                            child: const Text(
+                                              'هذا الأسبوع',
+                                              style: TextStyle(
+                                                color: Color(0xFF065F46),
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w700,
                                               ),
                                             ),
-                                            if (isThisWeek)
-                                              Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 8,
-                                                      vertical: 3,
-                                                    ),
-                                                decoration: BoxDecoration(
-                                                  color: const Color(
-                                                    0xFF059669,
-                                                  ).withValues(alpha: 0.14),
-                                                  borderRadius:
-                                                      BorderRadius.circular(
-                                                        999,
-                                                      ),
-                                                ),
-                                                child: const Text(
-                                                  'هذا الأسبوع',
-                                                  style: TextStyle(
-                                                    color: Color(0xFF065F46),
-                                                    fontSize: 11,
-                                                    fontWeight: FontWeight.w700,
-                                                  ),
-                                                ),
-                                              ),
-                                          ],
-                                        ),
-                                        if (widget.showLocation &&
-                                            location != null &&
-                                            location.isNotEmpty) ...[
-                                          const SizedBox(height: 4),
-                                          Row(
-                                            children: [
-                                              Icon(
-                                                Icons.location_on_outlined,
-                                                size: 14,
+                                          ),
+                                      ],
+                                    ),
+                                    if (widget.showLocation &&
+                                        location != null &&
+                                        location.isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        children: [
+                                          Icon(
+                                            Icons.location_on_outlined,
+                                            size: 14,
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onSurfaceVariant,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Expanded(
+                                            child: Text(
+                                              location,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
                                                 color: Theme.of(
                                                   context,
                                                 ).colorScheme.onSurfaceVariant,
+                                                fontSize: 12,
                                               ),
-                                              const SizedBox(width: 4),
-                                              Expanded(
-                                                child: Text(
-                                                  location,
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: TextStyle(
-                                                    color: Theme.of(context)
-                                                        .colorScheme
-                                                        .onSurfaceVariant,
-                                                    fontSize: 12,
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ],
-                                        if (description != null &&
-                                            description.trim().isNotEmpty) ...[
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            description.trim(),
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                              color: Theme.of(
-                                                context,
-                                              ).colorScheme.onSurfaceVariant,
-                                              fontSize: 12,
                                             ),
                                           ),
                                         ],
-                                        if (widget.showLocation &&
-                                            neededPerSessionMinutes > 0) ...[
-                                          const SizedBox(height: 6),
-                                          Text(
-                                            assignedSessions <= 0
-                                                ? 'عدد الساعات لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)} '
-                                                : (progressPct == null
-                                                      ? 'المطلوب لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)}'
-                                                      : 'المطلوب لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)} · الإنجاز: ${progressPct.toStringAsFixed(1)}%'),
-                                            style: const TextStyle(
-                                              color: Color(0xFF065F46),
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 11,
-                                            ),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                  const Icon(
-                                    Icons.arrow_back_ios_new_rounded,
-                                    size: 14,
-                                  ),
-                                ],
+                                      ),
+                                    ],
+                                    if (description != null &&
+                                        description.trim().isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        description.trim(),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.onSurfaceVariant,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                    if (widget.showLocation &&
+                                        neededPerSessionMinutes > 0) ...[
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        assignedSessions <= 0
+                                            ? 'عدد الساعات لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)} '
+                                            : (progressPct == null
+                                                  ? 'المطلوب لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)}'
+                                                  : 'المطلوب لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)} · الإنجاز: ${progressPct.toStringAsFixed(1)}%'),
+                                        style: const TextStyle(
+                                          color: Color(0xFF065F46),
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
                               ),
-                            ),
+                              const Icon(
+                                Icons.arrow_back_ios_new_rounded,
+                                size: 14,
+                              ),
+                            ],
                           ),
-                        );
-                      },
+                        ),
+                      ),
                     );
+                  },
+                ),
+              );
             },
           ),
         ),

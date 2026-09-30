@@ -11,9 +11,6 @@ import 'package:gap/gap.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/services/ble_attendance_codec.dart';
-import 'practical_sessions_screen.dart';
-
-enum _AttendanceProbeTarget { checkIn, checkOut, none }
 
 final qrLectureProvider = FutureProvider.family<Map<String, dynamic>?, String>((
   ref,
@@ -82,14 +79,14 @@ class _QrScreenState extends ConsumerState<QrScreen> {
   bool _isAdvertising = false;
   bool _isBusy = false;
   String? _status;
-  Timer? _attendancePollTimer;
-  bool _attendanceProbeInFlight = false;
   Timer? _autoStartRetryTimer;
   int _autoStartAttempts = 0;
   bool _autoStartEnabled = true;
   StreamSubscription<List<ScanResult>>? _ackScanSub;
+  StreamSubscription<List<Map<String, dynamic>>>? _attendanceRealtimeSub;
   int _requestNonce16 = 0;
   bool _ackHandled = false;
+  bool _completionHandled = false;
 
   int _nextRequestNonce16() {
     final raw = DateTime.now().microsecondsSinceEpoch & 0xFFFF;
@@ -100,12 +97,6 @@ class _QrScreenState extends ConsumerState<QrScreen> {
     return widget.eventType == 'check_out'
         ? BleAttendanceEventType.checkOut
         : BleAttendanceEventType.checkIn;
-  }
-
-  _AttendanceProbeTarget _selectedProbeTarget() {
-    return _selectedEventType() == BleAttendanceEventType.checkOut
-        ? _AttendanceProbeTarget.checkOut
-        : _AttendanceProbeTarget.checkIn;
   }
 
   bool _isGrantedState(PeripheralBluetoothState state) {
@@ -199,6 +190,20 @@ class _QrScreenState extends ConsumerState<QrScreen> {
     int? ackStatusCode,
     BleAttendanceEventType? ackEventType,
   }) {
+    final resultPayload = <String, String>{};
+    if (ackStatusCode != null && ackEventType != null) {
+      resultPayload['ack'] = ackStatusCode == 2 ? 'queued' : 'success';
+      resultPayload['eventType'] =
+          ackEventType == BleAttendanceEventType.checkOut
+          ? 'check_out'
+          : 'check_in';
+    }
+
+    if (context.canPop()) {
+      context.pop(resultPayload.isEmpty ? null : resultPayload);
+      return;
+    }
+
     final sid =
         widget.subjectId ??
         (lecture?['subject_id'] as String?) ??
@@ -210,11 +215,8 @@ class _QrScreenState extends ConsumerState<QrScreen> {
     }
 
     final query = <String, String>{};
-    if (ackStatusCode != null && ackEventType != null) {
-      query['ack'] = ackStatusCode == 2 ? 'queued' : 'success';
-      query['eventType'] = ackEventType == BleAttendanceEventType.checkOut
-          ? 'check_out'
-          : 'check_in';
+    if (resultPayload.isNotEmpty) {
+      query.addAll(resultPayload);
     }
 
     final uri = Uri(
@@ -279,7 +281,7 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       final uid = Supabase.instance.client.auth.currentUser!.id;
       _requestNonce16 = _nextRequestNonce16();
       _ackHandled = false;
-      final probeTarget = _selectedProbeTarget();
+      _completionHandled = false;
       final eventType = _selectedEventType();
       final payload = BleAttendanceCodec.buildManufacturerData(
         studentId: uid,
@@ -347,7 +349,7 @@ class _QrScreenState extends ConsumerState<QrScreen> {
 
       if (started) {
         _autoStartRetryTimer?.cancel();
-        _startAttendancePolling(studentId: uid, probeTarget: probeTarget);
+        _startAttendanceRealtime(uid, eventType);
         unawaited(_startAckListening(uid));
       }
     } catch (_) {
@@ -362,7 +364,7 @@ class _QrScreenState extends ConsumerState<QrScreen> {
   }
 
   Future<void> _stopAdvertising() async {
-    _cancelAttendancePolling();
+    await _stopAttendanceRealtime();
     await _stopAckListening();
     try {
       await _peripheral.stop();
@@ -405,11 +407,64 @@ class _QrScreenState extends ConsumerState<QrScreen> {
     _ackScanSub = null;
   }
 
+  void _startAttendanceRealtime(
+    String studentId,
+    BleAttendanceEventType event,
+  ) {
+    _attendanceRealtimeSub?.cancel();
+    _attendanceRealtimeSub = Supabase.instance.client
+        .from('practical_attendance')
+        .stream(primaryKey: ['id'])
+        .eq('student_id', studentId)
+        .listen((rows) {
+          unawaited(_onAttendanceRealtime(rows, event));
+        }, onError: (_, __) {});
+  }
+
+  Future<void> _stopAttendanceRealtime() async {
+    await _attendanceRealtimeSub?.cancel();
+    _attendanceRealtimeSub = null;
+  }
+
+  Future<void> _onAttendanceRealtime(
+    List<Map<String, dynamic>> rows,
+    BleAttendanceEventType event,
+  ) async {
+    if (_completionHandled || !_isAdvertising) return;
+    if (rows.isEmpty) return;
+
+    final row = rows.firstWhere(
+      (r) => (r['lecture_id'] as String?) == widget.lectureId,
+      orElse: () => <String, dynamic>{},
+    );
+    if (row.isEmpty) return;
+    final hasCheckIn = row['check_in_at'] != null;
+    final hasCheckOut = row['check_out_at'] != null;
+    final matched = event == BleAttendanceEventType.checkIn
+        ? hasCheckIn
+        : hasCheckOut;
+
+    if (!matched) return;
+
+    _completionHandled = true;
+    if (!mounted) return;
+    setState(() {
+      _status = event == BleAttendanceEventType.checkIn
+          ? 'تم تأكيد تسجيل الدخول ✓'
+          : 'تم تأكيد تسجيل الخروج ✓';
+    });
+
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    await _stopAdvertising();
+    if (!mounted || !context.mounted) return;
+    _goBack(context, null, ackStatusCode: 1, ackEventType: event);
+  }
+
   Future<void> _onAckScanResults(
     List<ScanResult> results,
     String studentId,
   ) async {
-    if (_ackHandled || !_isAdvertising) return;
+    if (_ackHandled || _completionHandled || !_isAdvertising) return;
     final expectedToken = BleAttendanceCodec.lectureToken16(widget.lectureId);
     final expectedEvent = _selectedEventType();
 
@@ -435,6 +490,7 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       }
 
       _ackHandled = true;
+      _completionHandled = true;
       if (!mounted) return;
       setState(() {
         _status = ack.statusCode == 1
@@ -461,178 +517,10 @@ class _QrScreenState extends ConsumerState<QrScreen> {
 
   @override
   void dispose() {
-    _cancelAttendancePolling();
     _autoStartRetryTimer?.cancel();
     unawaited(_stopAdvertising());
+    unawaited(_stopAttendanceRealtime());
     super.dispose();
-  }
-
-  Future<Map<String, dynamic>?> _fetchAttendanceRow(String studentId) async {
-    final res = await Supabase.instance.client
-        .from('practical_attendance')
-        .select('id, check_in_at, check_out_at')
-        .eq('lecture_id', widget.lectureId)
-        .eq('student_id', studentId)
-        .maybeSingle();
-    if (res == null) return null;
-    return Map<String, dynamic>.from(res);
-  }
-
-  Future<void> _updateLocalSessionAttendanceCache({
-    required String subjectId,
-    required Map<String, dynamic>? attendanceRow,
-  }) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final key = 'practical_sessions_subject_$subjectId';
-      final raw = prefs.getString(key);
-      if (raw == null) return;
-
-      final list = List<Map<String, dynamic>>.from(
-        (jsonDecode(raw) as List).cast<Map<String, dynamic>>(),
-      );
-
-      bool changed = false;
-      for (final item in list) {
-        final assignment = item['assignment'] as Map<String, dynamic>?;
-        final lectureId = assignment?['lecture_id'] as String?;
-        if (lectureId != widget.lectureId) continue;
-
-        final hasCheckIn = attendanceRow?['check_in_at'] != null;
-        final hasCheckOut = attendanceRow?['check_out_at'] != null;
-
-        int? spentMinutes;
-        if (hasCheckIn && hasCheckOut) {
-          final checkIn = DateTime.tryParse(
-            attendanceRow!['check_in_at'] as String,
-          );
-          final checkOut = DateTime.tryParse(
-            attendanceRow['check_out_at'] as String,
-          );
-          if (checkIn != null &&
-              checkOut != null &&
-              checkOut.isAfter(checkIn)) {
-            spentMinutes = checkOut.difference(checkIn).inMinutes;
-          }
-        }
-
-        String attendanceState;
-        if (assignment == null) {
-          attendanceState = 'unassigned';
-        } else if (!hasCheckIn) {
-          attendanceState = 'pending_check_in';
-        } else if (!hasCheckOut) {
-          attendanceState = 'pending_check_out';
-        } else {
-          attendanceState = 'completed';
-        }
-
-        item['has_check_in'] = hasCheckIn;
-        item['has_check_out'] = hasCheckOut;
-        item['spent_minutes'] = spentMinutes;
-        item['attendance_state'] = attendanceState;
-        changed = true;
-        break;
-      }
-
-      if (!changed) return;
-      await prefs.setString(key, jsonEncode(list));
-    } catch (_) {}
-  }
-
-  void _startAttendancePolling({
-    required String studentId,
-    required _AttendanceProbeTarget probeTarget,
-  }) {
-    _cancelAttendancePolling();
-    if (probeTarget == _AttendanceProbeTarget.none) {
-      return;
-    }
-
-    _attendancePollTimer = Timer(const Duration(seconds: 2), () async {
-      final done = await _checkAttendanceProbe(
-        studentId: studentId,
-        target: probeTarget,
-      );
-      if (done || !mounted || !_isAdvertising) return;
-
-      _attendancePollTimer = Timer.periodic(const Duration(seconds: 5), (
-        timer,
-      ) async {
-        final confirmed = await _checkAttendanceProbe(
-          studentId: studentId,
-          target: probeTarget,
-        );
-        if (confirmed || !mounted || !_isAdvertising) {
-          timer.cancel();
-          if (identical(_attendancePollTimer, timer)) {
-            _attendancePollTimer = null;
-          }
-        }
-      });
-    });
-  }
-
-  Future<bool> _checkAttendanceProbe({
-    required String studentId,
-    required _AttendanceProbeTarget target,
-  }) async {
-    if (_attendanceProbeInFlight) return false;
-    _attendanceProbeInFlight = true;
-    try {
-      final row = await _fetchAttendanceRow(studentId);
-      final hasCheckIn = row?['check_in_at'] != null;
-      final hasCheckOut = row?['check_out_at'] != null;
-
-      final matched =
-          (target == _AttendanceProbeTarget.checkIn && hasCheckIn) ||
-          (target == _AttendanceProbeTarget.checkOut && hasCheckOut);
-
-      if (!matched) {
-        return false;
-      }
-
-      final sid = widget.subjectId;
-      if (sid != null && sid.isNotEmpty) {
-        await _updateLocalSessionAttendanceCache(
-          subjectId: sid,
-          attendanceRow: row,
-        );
-      }
-
-      if (!mounted) return true;
-      setState(() {
-        _status = target == _AttendanceProbeTarget.checkIn
-            ? 'تم تأكيد تسجيل الدخول ✓'
-            : 'تم تأكيد تسجيل الخروج ✓';
-      });
-
-      if (sid != null && sid.isNotEmpty) {
-        ref.invalidate(practicalSessionsBySubjectProvider(sid));
-      }
-      _cancelAttendancePolling();
-
-      await _stopAdvertising();
-      if (!mounted || !context.mounted) return true;
-      _goBack(
-        context,
-        null,
-        ackStatusCode: 1,
-        ackEventType: target == _AttendanceProbeTarget.checkOut
-            ? BleAttendanceEventType.checkOut
-            : BleAttendanceEventType.checkIn,
-      );
-      return true;
-    } catch (_) {
-      return false;
-    } finally {
-      _attendanceProbeInFlight = false;
-    }
-  }
-
-  void _cancelAttendancePolling() {
-    _attendancePollTimer?.cancel();
-    _attendancePollTimer = null;
   }
 
   @override

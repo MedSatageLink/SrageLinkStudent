@@ -14,6 +14,7 @@ import '../../features/practical/screens/practical_sessions_screen.dart';
 import '../../features/practical/screens/qr_screen.dart';
 import '../../features/practical/screens/practical_videos_screen.dart';
 import '../../features/practical/screens/practical_video_player_screen.dart';
+import '../../features/practical/screens/department_progress_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -88,6 +89,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           videoId: state.pathParameters['videoId']!,
           subjectId: state.uri.queryParameters['subjectId'],
         ),
+      ),
+      GoRoute(
+        path: '/practical/progress',
+        builder: (_, _) => const DepartmentProgressScreen(),
       ),
       GoRoute(
         path: '/profile',
