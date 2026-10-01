@@ -22,6 +22,7 @@ class BleAttendanceCodec {
   static const String markerServiceUuidFull =
       '0000a100-0000-1000-8000-00805f9b34fb';
   static const int studentLectureBindingVersion = 5;
+  static const int ackManufacturerVersion = 6;
 
   static Uint8List buildManufacturerData({
     required String studentId,
@@ -131,6 +132,30 @@ class BleAttendanceCodec {
         nonce == null) {
       return null;
     }
+
+    return BleAttendanceAck(
+      lectureToken16: token,
+      eventType: eventCode == 1
+          ? BleAttendanceEventType.checkIn
+          : BleAttendanceEventType.checkOut,
+      statusCode: statusCode,
+      requestNonce16: nonce,
+    );
+  }
+
+  static BleAttendanceAck? parseAckFromManufacturerData(List<int> payload) {
+    if (payload.length < 7) return null;
+    if (payload[0] != ackManufacturerVersion) return null;
+
+    final eventCode = payload[1] & 0xFF;
+    final statusCode = payload[2] & 0xFF;
+    if ((eventCode != 1 && eventCode != 2) ||
+        (statusCode != 1 && statusCode != 2)) {
+      return null;
+    }
+
+    final token = ((payload[3] & 0xFF) << 8) | (payload[4] & 0xFF);
+    final nonce = ((payload[5] & 0xFF) << 8) | (payload[6] & 0xFF);
 
     return BleAttendanceAck(
       lectureToken16: token,

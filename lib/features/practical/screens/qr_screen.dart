@@ -469,23 +469,42 @@ class _QrScreenState extends ConsumerState<QrScreen> {
     final expectedEvent = _selectedEventType();
 
     for (final result in results) {
-      final serviceUuids = result.advertisementData.serviceUuids
-          .map((g) => g.toString())
-          .toList();
-      if (serviceUuids.isEmpty) continue;
+      BleAttendanceAck? ack;
 
-      final ack = BleAttendanceCodec.parseAckFromServiceUuids(
-        serviceUuids: serviceUuids,
-        studentId: studentId,
-      );
+      final manufacturerMap = result.advertisementData.manufacturerData;
+      final expectedPayload = manufacturerMap[BleAttendanceCodec.manufacturerId];
+      if (expectedPayload != null && expectedPayload.isNotEmpty) {
+        ack = BleAttendanceCodec.parseAckFromManufacturerData(expectedPayload);
+      }
+
+      if (ack == null) {
+        for (final entry in manufacturerMap.entries) {
+          if (entry.value.isEmpty) continue;
+          ack = BleAttendanceCodec.parseAckFromManufacturerData(entry.value);
+          if (ack != null) break;
+        }
+      }
+
+      if (ack == null) {
+        final serviceUuids = result.advertisementData.serviceUuids
+            .map((g) => g.toString())
+            .toList();
+        if (serviceUuids.isEmpty) continue;
+        ack = BleAttendanceCodec.parseAckFromServiceUuids(
+          serviceUuids: serviceUuids,
+          studentId: studentId,
+        );
+      }
+
       if (ack == null) continue;
-      if (ack.lectureToken16 != expectedToken) {
+      final parsedAck = ack;
+      if (parsedAck.lectureToken16 != expectedToken) {
         continue;
       }
-      if (ack.eventType != expectedEvent) {
+      if (parsedAck.eventType != expectedEvent) {
         continue;
       }
-      if (ack.requestNonce16 != _requestNonce16) {
+      if (parsedAck.requestNonce16 != _requestNonce16) {
         continue;
       }
 
@@ -493,7 +512,7 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       _completionHandled = true;
       if (!mounted) return;
       setState(() {
-        _status = ack.statusCode == 1
+        _status = parsedAck.statusCode == 1
             ? (expectedEvent == BleAttendanceEventType.checkIn
                   ? 'لقد تم تسجيل الدخول بنجاح ✓'
                   : 'لقد تم تسجيل الخروج بنجاح ✓')
@@ -508,7 +527,7 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       _goBack(
         context,
         null,
-        ackStatusCode: ack.statusCode,
+        ackStatusCode: parsedAck.statusCode,
         ackEventType: expectedEvent,
       );
       return;

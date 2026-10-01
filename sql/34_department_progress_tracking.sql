@@ -200,17 +200,11 @@ AS $$
                  WHEN pa.check_in_at IS NULL THEN 0
                  WHEN pa.check_out_at IS NULL THEN GREATEST(
                    0,
-                   LEAST(
-                     a.needed_minutes_per_session,
-                     FLOOR(EXTRACT(EPOCH FROM (NOW() - pa.check_in_at)) / 60.0)::INT
-                   )
+                  FLOOR(EXTRACT(EPOCH FROM (NOW() - pa.check_in_at)) / 60.0)::INT
                  )
                  ELSE GREATEST(
                    0,
-                   LEAST(
-                     a.needed_minutes_per_session,
-                     FLOOR(EXTRACT(EPOCH FROM (pa.check_out_at - pa.check_in_at)) / 60.0)::INT
-                   )
+                  FLOOR(EXTRACT(EPOCH FROM (pa.check_out_at - pa.check_in_at)) / 60.0)::INT
                  )
                END
              ),

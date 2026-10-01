@@ -64,8 +64,10 @@ class DepartmentProgressScreen extends ConsumerWidget {
               final spent = (r['spent_minutes'] as num?)?.round() ?? 0;
               final required = (r['required_minutes'] as num?)?.round() ?? 0;
               final pctRaw = (r['progress_percent'] as num?)?.toDouble() ?? 0;
-              final pct = pctRaw.clamp(0, 100);
-              final progressValue = required > 0 ? (pct / 100) : 0.0;
+              final pct = pctRaw < 0 ? 0.0 : pctRaw;
+              final progressValue = required > 0
+                  ? (pct / 100).clamp(0.0, 1.0)
+                  : 0.0;
 
               return Card(
                 margin: const EdgeInsets.only(bottom: 10),
