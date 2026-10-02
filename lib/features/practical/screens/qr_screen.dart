@@ -484,9 +484,7 @@ class _QrScreenState extends ConsumerState<QrScreen> {
             return;
           }
 
-          await Future<void>.delayed(
-            Duration(milliseconds: 350 + (i * 250)),
-          );
+          await Future<void>.delayed(Duration(milliseconds: 350 + (i * 250)));
           await _ensureAdapterReadyForScan();
         }
       }
