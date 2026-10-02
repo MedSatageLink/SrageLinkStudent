@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:async';
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -87,6 +88,45 @@ class _QrScreenState extends ConsumerState<QrScreen> {
   int _requestNonce16 = 0;
   bool _ackHandled = false;
   bool _completionHandled = false;
+  final List<String> _ackLogs = <String>[];
+
+  String _nowStamp() {
+    final now = DateTime.now();
+    final h = now.hour.toString().padLeft(2, '0');
+    final m = now.minute.toString().padLeft(2, '0');
+    final s = now.second.toString().padLeft(2, '0');
+    final ms = now.millisecond.toString().padLeft(3, '0');
+    return '$h:$m:$s.$ms';
+  }
+
+  void _appendAckLog(String message) {
+    final line = '[${_nowStamp()}] $message';
+    if (!mounted) {
+      _ackLogs.add(line);
+      if (_ackLogs.length > 250) {
+        _ackLogs.removeRange(0, _ackLogs.length - 250);
+      }
+      return;
+    }
+
+    setState(() {
+      _ackLogs.add(line);
+      if (_ackLogs.length > 250) {
+        _ackLogs.removeRange(0, _ackLogs.length - 250);
+      }
+    });
+  }
+
+  Future<void> _copyAckLogs() async {
+    final text = _ackLogs.isEmpty
+        ? 'No ACK logs yet.'
+        : _ackLogs.join('\n');
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('تم نسخ اللوغ')),
+    );
+  }
 
   int _nextRequestNonce16() {
     final raw = DateTime.now().microsecondsSinceEpoch & 0xFFFF;
@@ -228,6 +268,7 @@ class _QrScreenState extends ConsumerState<QrScreen> {
 
   Future<void> _startAdvertising() async {
     if (_isBusy || _isAdvertising) return;
+    _appendAckLog('start advertising requested');
     setState(() {
       _isBusy = true;
       _status = null;
@@ -244,6 +285,7 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       }
 
       var permissionState = await _peripheral.hasPermission();
+      _appendAckLog('permission state initial: $permissionState');
 
       if (!_isGrantedState(permissionState)) {
         permissionState = await _peripheral.requestPermission();
@@ -251,6 +293,7 @@ class _QrScreenState extends ConsumerState<QrScreen> {
 
       if (!_isGrantedState(permissionState) &&
           !_isTurnedOffState(permissionState)) {
+        _appendAckLog('permission insufficient: $permissionState');
         setState(() {
           _status =
               'صلاحية البلوتوث غير كافية (${permissionState.toString()})، يرجى السماح بالتطبيق من الإعدادات';
@@ -259,8 +302,10 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       }
 
       if (_isTurnedOffState(permissionState)) {
+        _appendAckLog('bluetooth off -> trying to enable');
         final enabled = await _peripheral.enableBluetooth();
         if (!enabled) {
+          _appendAckLog('enable bluetooth failed');
           setState(() {
             _status = 'يرجى تفعيل البلوتوث';
             _isBusy = false;
@@ -283,6 +328,9 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       _ackHandled = false;
       _completionHandled = false;
       final eventType = _selectedEventType();
+      _appendAckLog(
+        'prepare broadcast student=$uid event=${eventType == BleAttendanceEventType.checkIn ? 'check_in' : 'check_out'} nonce=$_requestNonce16',
+      );
       final payload = BleAttendanceCodec.buildManufacturerData(
         studentId: uid,
         lectureId: widget.lectureId,
@@ -320,10 +368,13 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       for (var i = 0; i < attempts.length; i++) {
         final attempt = attempts[i];
         try {
+          _appendAckLog('advertise attempt ${i + 1}/${attempts.length}: ${attempt.name}');
           await _peripheral.start(advertiseData: attempt.data);
+          _appendAckLog('advertise attempt ${i + 1} succeeded');
           lastError = null;
           break;
         } catch (e) {
+          _appendAckLog('advertise attempt ${i + 1} failed: $e');
           lastError = e;
           final text = e.toString();
           final isTooLarge = text.contains('ADVERTISE_FAILED_DATA_TOO_LARGE');
@@ -339,6 +390,7 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       }
 
       final started = await _peripheral.isAdvertising;
+      _appendAckLog('isAdvertising=$started');
 
       setState(() {
         _isAdvertising = started;
@@ -352,7 +404,8 @@ class _QrScreenState extends ConsumerState<QrScreen> {
         _startAttendanceRealtime(uid, eventType);
         unawaited(_startAckListening(uid));
       }
-    } catch (_) {
+    } catch (e) {
+      _appendAckLog('start advertising exception: $e');
       setState(() {
         _status = 'تعذر بدء الإرسال، حاول مجدداً';
       });
@@ -364,6 +417,7 @@ class _QrScreenState extends ConsumerState<QrScreen> {
   }
 
   Future<void> _stopAdvertising() async {
+    _appendAckLog('stop advertising requested');
     await _stopAttendanceRealtime();
     await _stopAckListening();
     try {
@@ -375,6 +429,7 @@ class _QrScreenState extends ConsumerState<QrScreen> {
 
   Future<void> _startAckListening(String studentId) async {
     try {
+      _appendAckLog('start ACK listening for student=$studentId');
       if (!await FlutterBluePlus.isSupported) return;
 
       final adapterState = await FlutterBluePlus.adapterState.first;
@@ -396,10 +451,14 @@ class _QrScreenState extends ConsumerState<QrScreen> {
         timeout: const Duration(days: 1),
         androidUsesFineLocation: false,
       );
-    } catch (_) {}
+      _appendAckLog('ACK scan started');
+    } catch (e) {
+      _appendAckLog('start ACK listening failed: $e');
+    }
   }
 
   Future<void> _stopAckListening() async {
+    _appendAckLog('stop ACK listening');
     try {
       await FlutterBluePlus.stopScan();
     } catch (_) {}
@@ -445,6 +504,9 @@ class _QrScreenState extends ConsumerState<QrScreen> {
         : hasCheckOut;
 
     if (!matched) return;
+    _appendAckLog(
+      'Realtime attendance matched event=${event == BleAttendanceEventType.checkIn ? 'check_in' : 'check_out'}',
+    );
 
     _completionHandled = true;
     if (!mounted) return;
@@ -465,6 +527,9 @@ class _QrScreenState extends ConsumerState<QrScreen> {
     String studentId,
   ) async {
     if (_ackHandled || _completionHandled || !_isAdvertising) return;
+    if (results.isNotEmpty) {
+      _appendAckLog('ACK scan results count=${results.length}');
+    }
     final expectedToken = BleAttendanceCodec.lectureToken16(widget.lectureId);
     final expectedEvent = _selectedEventType();
 
@@ -472,16 +537,23 @@ class _QrScreenState extends ConsumerState<QrScreen> {
       BleAttendanceAck? ack;
 
       final manufacturerMap = result.advertisementData.manufacturerData;
-      final expectedPayload = manufacturerMap[BleAttendanceCodec.manufacturerId];
+      final expectedPayload =
+          manufacturerMap[BleAttendanceCodec.manufacturerId];
       if (expectedPayload != null && expectedPayload.isNotEmpty) {
         ack = BleAttendanceCodec.parseAckFromManufacturerData(expectedPayload);
+        if (ack != null) {
+          _appendAckLog('ACK parsed from expected manufacturer payload');
+        }
       }
 
       if (ack == null) {
         for (final entry in manufacturerMap.entries) {
           if (entry.value.isEmpty) continue;
           ack = BleAttendanceCodec.parseAckFromManufacturerData(entry.value);
-          if (ack != null) break;
+          if (ack != null) {
+            _appendAckLog('ACK parsed from manufacturer map key=${entry.key}');
+            break;
+          }
         }
       }
 
@@ -494,19 +566,33 @@ class _QrScreenState extends ConsumerState<QrScreen> {
           serviceUuids: serviceUuids,
           studentId: studentId,
         );
+        if (ack != null) {
+          _appendAckLog('ACK parsed from service UUIDs');
+        }
       }
 
       if (ack == null) continue;
       final parsedAck = ack;
       if (parsedAck.lectureToken16 != expectedToken) {
+        _appendAckLog(
+          'ACK ignored: token mismatch got=${parsedAck.lectureToken16} expected=$expectedToken',
+        );
         continue;
       }
       if (parsedAck.eventType != expectedEvent) {
+        _appendAckLog('ACK ignored: event mismatch');
         continue;
       }
       if (parsedAck.requestNonce16 != _requestNonce16) {
+        _appendAckLog(
+          'ACK ignored: nonce mismatch got=${parsedAck.requestNonce16} expected=$_requestNonce16',
+        );
         continue;
       }
+
+      _appendAckLog(
+        'ACK accepted status=${parsedAck.statusCode} nonce=${parsedAck.requestNonce16}',
+      );
 
       _ackHandled = true;
       _completionHandled = true;
@@ -664,6 +750,60 @@ class _QrScreenState extends ConsumerState<QrScreen> {
                             _isAdvertising ? 'إيقاف الإرسال' : 'بدء الإرسال',
                           ),
                         ),
+                      ),
+                      const Gap(12),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Wrap(
+                          spacing: 8,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: _copyAckLogs,
+                              icon: const Icon(Icons.copy_rounded),
+                              label: const Text('نسخ اللوغ'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: () {
+                                setState(() => _ackLogs.clear());
+                              },
+                              icon: const Icon(Icons.delete_outline_rounded),
+                              label: const Text('مسح اللوغ'),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Gap(8),
+                      Container(
+                        width: double.infinity,
+                        constraints: const BoxConstraints(maxHeight: 160),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surface
+                              .withValues(alpha: 0.6),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Theme.of(context)
+                                .dividerColor
+                                .withValues(alpha: 0.25),
+                          ),
+                        ),
+                        child: _ackLogs.isEmpty
+                            ? Text(
+                                'لا يوجد لوغ ACK بعد',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              )
+                            : SingleChildScrollView(
+                                reverse: true,
+                                child: Text(
+                                  _ackLogs.join('\n'),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(height: 1.35),
+                                ),
+                              ),
                       ),
                     ],
                   ),
