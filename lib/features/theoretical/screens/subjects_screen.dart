@@ -66,93 +66,126 @@ final weeklyAttendanceSubjectIdsProvider =
       return ids;
     });
 
-class TheoreticalSubjectsScreen extends ConsumerWidget {
+class TheoreticalSubjectsScreen extends ConsumerStatefulWidget {
   final String yearId;
   const TheoreticalSubjectsScreen({super.key, required this.yearId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final subjectsAsync = ref.watch(subjectsByYearProvider(yearId));
+  ConsumerState<TheoreticalSubjectsScreen> createState() =>
+      _TheoreticalSubjectsScreenState();
+}
+
+class _TheoreticalSubjectsScreenState
+    extends ConsumerState<TheoreticalSubjectsScreen> {
+  Future<void> _refreshPage() async {
+    ref.invalidate(subjectsByYearProvider(widget.yearId));
+    ref.invalidate(weeklyAttendanceSubjectIdsProvider(widget.yearId));
+
+    await Future.wait([
+      ref.read(subjectsByYearProvider(widget.yearId).future),
+      ref.read(weeklyAttendanceSubjectIdsProvider(widget.yearId).future),
+    ]);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final subjectsAsync = ref.watch(subjectsByYearProvider(widget.yearId));
     final weeklyAttendanceIds =
-        ref.watch(weeklyAttendanceSubjectIdsProvider(yearId)).valueOrNull ??
+        ref
+            .watch(weeklyAttendanceSubjectIdsProvider(widget.yearId))
+            .valueOrNull ??
         const <String>{};
     return Scaffold(
       appBar: AppBar(title: const Text('الستاجات')),
       body: subjectsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text(AppErrorMessage.from(e))),
-        data: (subjects) => subjects.isEmpty
-            ? const Center(child: Text('لا توجد ستاجات'))
-            : ListView.separated(
-                key: PageStorageKey<String>('theoretical_subjects_$yearId'),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                itemCount: subjects.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 10),
-                itemBuilder: (context, i) {
-                  final s = subjects[i];
-                  final isThisWeek = weeklyAttendanceIds.contains(
-                    s['id'] as String,
-                  );
-                  return Material(
-                    color: isThisWeek
-                        ? const Color(0xFF059669).withValues(alpha: 0.10)
-                        : AppColors.surface,
-                    borderRadius: BorderRadius.circular(14),
-                    child: InkWell(
+        data: (subjects) => RefreshIndicator(
+          onRefresh: _refreshPage,
+          child: subjects.isEmpty
+              ? ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: const [
+                    SizedBox(height: 220),
+                    Center(child: Text('لا توجد ستاجات')),
+                  ],
+                )
+              : ListView.separated(
+                  key: PageStorageKey<String>(
+                    'theoretical_subjects_${widget.yearId}',
+                  ),
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  itemCount: subjects.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
+                  itemBuilder: (context, i) {
+                    final s = subjects[i];
+                    final isThisWeek = weeklyAttendanceIds.contains(
+                      s['id'] as String,
+                    );
+                    return Material(
+                      color: isThisWeek
+                          ? const Color(0xFF059669).withValues(alpha: 0.10)
+                          : AppColors.surface,
                       borderRadius: BorderRadius.circular(14),
-                      onTap: () =>
-                          context.push('/theoretical/videos/${s['id']}'),
-                      child: ListTile(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        tileColor: isThisWeek
-                            ? const Color(0xFF059669).withValues(alpha: 0.04)
-                            : null,
-                        leading: CircleAvatar(
-                          backgroundColor: AppColors.primaryContainer,
-                          child: Text(
-                            '${i + 1}',
-                            style: const TextStyle(fontWeight: FontWeight.w700),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: () =>
+                            context.push('/theoretical/videos/${s['id']}'),
+                        child: ListTile(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
                           ),
-                        ),
-                        title: Text(s['name'] as String),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (s['description'] != null)
-                              Text(
-                                s['description'] as String,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                          tileColor: isThisWeek
+                              ? const Color(0xFF059669).withValues(alpha: 0.04)
+                              : null,
+                          leading: CircleAvatar(
+                            backgroundColor: AppColors.primaryContainer,
+                            child: Text(
+                              '${i + 1}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
                               ),
-                            if (isThisWeek)
-                              const Padding(
-                                padding: EdgeInsets.only(top: 4),
-                                child: Text(
-                                  'لديك حضور هذا الأسبوع',
-                                  style: TextStyle(
-                                    color: Color(0xFF065F46),
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 11,
+                            ),
+                          ),
+                          title: Text(s['name'] as String),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (s['description'] != null)
+                                Text(
+                                  s['description'] as String,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              if (isThisWeek)
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    'لديك حضور هذا الأسبوع',
+                                    style: TextStyle(
+                                      color: Color(0xFF065F46),
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 11,
+                                    ),
                                   ),
                                 ),
-                              ),
-                          ],
-                        ),
-                        trailing: const Icon(
-                          Icons.arrow_back_ios_rounded,
-                          size: 14,
+                            ],
+                          ),
+                          trailing: const Icon(
+                            Icons.arrow_back_ios_rounded,
+                            size: 14,
+                          ),
                         ),
                       ),
-                    ),
-                  );
-                },
-              ),
+                    );
+                  },
+                ),
+        ),
       ),
     );
   }

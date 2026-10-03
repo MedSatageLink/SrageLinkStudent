@@ -161,6 +161,18 @@ class _PracticalSubjectsScreenState
     extends ConsumerState<PracticalSubjectsScreen> {
   bool _onlyThisWeek = false;
 
+  Future<void> _refreshPage() async {
+    ref.invalidate(practicalSubjectsByYearProvider(widget.yearId));
+    ref.invalidate(practicalAttendanceStatsByYearProvider(widget.yearId));
+    ref.invalidate(weeklyAttendanceSubjectIdsProvider(widget.yearId));
+
+    await Future.wait([
+      ref.read(practicalSubjectsByYearProvider(widget.yearId).future),
+      ref.read(practicalAttendanceStatsByYearProvider(widget.yearId).future),
+      ref.read(weeklyAttendanceSubjectIdsProvider(widget.yearId).future),
+    ]);
+  }
+
   String _formatMinutes(int mins) {
     final h = mins ~/ 60;
     final m = mins % 60;
@@ -210,181 +222,199 @@ class _PracticalSubjectsScreenState
                     .toList()
               : subjects;
 
-          return visible.isEmpty
-              ? Center(
-                  child: Text(
-                    _onlyThisWeek
-                        ? 'لا توجد بطاقات مطابقة لفلترة هذا الأسبوع'
-                        : 'لا توجد ستاجات',
-                  ),
-                )
-              : ListView.separated(
-                  key: PageStorageKey<String>(
-                    'practical_subjects_${widget.yearId}',
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  itemCount: visible.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 10),
-                  itemBuilder: (context, i) {
-                    final s = visible[i];
-                    final isThisWeek = weeklyAttendanceIds.contains(
-                      s['id'] as String,
-                    );
-                    final location = (s['location'] as String?)?.trim();
-                    final description = (s['description'] as String?)?.trim();
-                    final subjectId = s['id'] as String;
-                    final neededMinutesRaw = (s['needed_hours'] as num?)
-                        ?.toDouble();
-                    final stats = attendanceStats[subjectId];
+          return RefreshIndicator(
+            onRefresh: _refreshPage,
+            child: visible.isEmpty
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      const SizedBox(height: 220),
+                      Center(
+                        child: Text(
+                          _onlyThisWeek
+                              ? 'لا توجد بطاقات مطابقة لفلترة هذا الأسبوع'
+                              : 'لا توجد ستاجات',
+                        ),
+                      ),
+                    ],
+                  )
+                : ListView.separated(
+                    key: PageStorageKey<String>(
+                      'practical_subjects_${widget.yearId}',
+                    ),
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    itemCount: visible.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
+                    itemBuilder: (context, i) {
+                      final s = visible[i];
+                      final isThisWeek = weeklyAttendanceIds.contains(
+                        s['id'] as String,
+                      );
+                      final location = (s['location'] as String?)?.trim();
+                      final description = (s['description'] as String?)?.trim();
+                      final subjectId = s['id'] as String;
+                      final neededMinutesRaw = (s['needed_hours'] as num?)
+                          ?.toDouble();
+                      final stats = attendanceStats[subjectId];
 
-                    final neededPerSessionMinutes = neededMinutesRaw == null
-                        ? 0
-                        : neededMinutesRaw.round();
-                    final assignedSessions = stats?.assignedSessions ?? 0;
-                    final achievedMinutes = stats?.achievedMinutes ?? 0;
-                    final int requiredMinutes =
-                        neededPerSessionMinutes * assignedSessions;
-                    final double? progressPct = requiredMinutes > 0
-                        ? ((achievedMinutes / requiredMinutes) * 100).clamp(
-                            0,
-                            100,
-                          )
-                        : null;
+                      final neededPerSessionMinutes = neededMinutesRaw == null
+                          ? 0
+                          : neededMinutesRaw.round();
+                      final assignedSessions = stats?.assignedSessions ?? 0;
+                      final achievedMinutes = stats?.achievedMinutes ?? 0;
+                      final int requiredMinutes =
+                          neededPerSessionMinutes * assignedSessions;
+                      final double? progressPct = requiredMinutes > 0
+                          ? ((achievedMinutes / requiredMinutes) * 100).clamp(
+                              0,
+                              100,
+                            )
+                          : null;
 
-                    return Material(
-                      color: isThisWeek
-                          ? const Color(0xFF059669).withValues(alpha: 0.10)
-                          : AppColors.surface,
-                      borderRadius: BorderRadius.circular(14),
-                      child: InkWell(
+                      return Material(
+                        color: isThisWeek
+                            ? const Color(0xFF059669).withValues(alpha: 0.10)
+                            : AppColors.surface,
                         borderRadius: BorderRadius.circular(14),
-                        onTap: () =>
-                            context.push('/practical/sessions/$subjectId'),
-                        child: Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: isThisWeek
-                                  ? const Color(
-                                      0xFF059669,
-                                    ).withValues(alpha: 0.5)
-                                  : Theme.of(context).colorScheme.outline
-                                        .withValues(alpha: 0.15),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: () =>
+                              context.push('/practical/sessions/$subjectId'),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: isThisWeek
+                                    ? const Color(
+                                        0xFF059669,
+                                      ).withValues(alpha: 0.5)
+                                    : Theme.of(context).colorScheme.outline
+                                          .withValues(alpha: 0.15),
+                              ),
                             ),
-                          ),
-                          child: Row(
-                            children: [
-                              CircleAvatar(
-                                backgroundColor: const Color(
-                                  0xFF059669,
-                                ).withValues(alpha: 0.12),
-                                child: Text(
-                                  '${i + 1}',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
+                            child: Row(
+                              children: [
+                                CircleAvatar(
+                                  backgroundColor: const Color(
+                                    0xFF059669,
+                                  ).withValues(alpha: 0.12),
+                                  child: Text(
+                                    '${i + 1}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
                                 ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      s['name'] as String,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        s['name'] as String,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                        ),
                                       ),
-                                    ),
-                                    if (location != null && location.isNotEmpty)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 4),
-                                        child: Row(
-                                          children: [
-                                            Icon(
-                                              Icons.location_on_outlined,
-                                              size: 14,
+                                      if (location != null &&
+                                          location.isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            top: 4,
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                Icons.location_on_outlined,
+                                                size: 14,
+                                                color: Theme.of(
+                                                  context,
+                                                ).colorScheme.onSurfaceVariant,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Expanded(
+                                                child: Text(
+                                                  location,
+                                                  style: TextStyle(
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .onSurfaceVariant,
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      if (description != null &&
+                                          description.isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            top: 4,
+                                          ),
+                                          child: Text(
+                                            description,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
                                               color: Theme.of(
                                                 context,
                                               ).colorScheme.onSurfaceVariant,
+                                              fontSize: 12,
                                             ),
-                                            const SizedBox(width: 4),
-                                            Expanded(
-                                              child: Text(
-                                                location,
-                                                style: TextStyle(
-                                                  color: Theme.of(context)
-                                                      .colorScheme
-                                                      .onSurfaceVariant,
-                                                  fontSize: 12,
-                                                ),
-                                              ),
+                                          ),
+                                        ),
+                                      if (neededPerSessionMinutes > 0)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            top: 6,
+                                          ),
+                                          child: Text(
+                                            assignedSessions <= 0
+                                                ? 'المطلوب لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)} · غير مفروز بعد'
+                                                : (progressPct == null
+                                                      ? 'المطلوب لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)}'
+                                                      : 'المطلوب لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)} · الإنجاز: ${progressPct.toStringAsFixed(1)}%'),
+                                            style: const TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w600,
+                                              color: Color(0xFF065F46),
                                             ),
-                                          ],
-                                        ),
-                                      ),
-                                    if (description != null &&
-                                        description.isNotEmpty)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 4),
-                                        child: Text(
-                                          description,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.onSurfaceVariant,
-                                            fontSize: 12,
                                           ),
                                         ),
-                                      ),
-                                    if (neededPerSessionMinutes > 0)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 6),
-                                        child: Text(
-                                          assignedSessions <= 0
-                                              ? 'المطلوب لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)} · غير مفروز بعد'
-                                              : (progressPct == null
-                                                    ? 'المطلوب لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)}'
-                                                    : 'المطلوب لكل جلسة: ${_formatMinutes(neededPerSessionMinutes)} · الإنجاز: ${progressPct.toStringAsFixed(1)}%'),
-                                          style: const TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w600,
-                                            color: Color(0xFF065F46),
+                                      if (isThisWeek)
+                                        const Padding(
+                                          padding: EdgeInsets.only(top: 4),
+                                          child: Text(
+                                            'لديك حضور هذا الأسبوع',
+                                            style: TextStyle(
+                                              color: Color(0xFF065F46),
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 11,
+                                            ),
                                           ),
                                         ),
-                                      ),
-                                    if (isThisWeek)
-                                      const Padding(
-                                        padding: EdgeInsets.only(top: 4),
-                                        child: Text(
-                                          'لديك حضور هذا الأسبوع',
-                                          style: TextStyle(
-                                            color: Color(0xFF065F46),
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 11,
-                                          ),
-                                        ),
-                                      ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
-                              ),
-                              const Icon(
-                                Icons.arrow_back_ios_rounded,
-                                size: 14,
-                              ),
-                            ],
+                                const Icon(
+                                  Icons.arrow_back_ios_rounded,
+                                  size: 14,
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                    );
-                  },
-                );
+                      );
+                    },
+                  ),
+          );
         },
       ),
     );

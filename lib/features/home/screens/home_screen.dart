@@ -18,6 +18,52 @@ DateTime _currentWeekStartSaturdayLocal() {
   return today.subtract(Duration(days: daysSinceSaturday));
 }
 
+List<Map<String, dynamic>> _sortSubjects(List<Map<String, dynamic>> input) {
+  final list = List<Map<String, dynamic>>.from(input);
+  list.sort((a, b) {
+    final ao = a['rotation_order'] as int?;
+    final bo = b['rotation_order'] as int?;
+    if (ao != null && bo != null) return ao.compareTo(bo);
+    if (ao != null) return -1;
+    if (bo != null) return 1;
+    final an = (a['name'] as String? ?? '').toLowerCase();
+    final bn = (b['name'] as String? ?? '').toLowerCase();
+    return an.compareTo(bn);
+  });
+  return list;
+}
+
+String _homeSubjectsCacheKey(String yearId) => 'home_subjects_year_$yearId';
+
+Future<List<Map<String, dynamic>>> _fetchSubjectsRemote(String yearId) async {
+  final res = await Supabase.instance.client
+      .from('subjects')
+      .select('id, name, description, rotation_order, location, needed_hours')
+      .eq('year_id', yearId)
+      .order('rotation_order')
+      .order('name');
+  return _sortSubjects(List<Map<String, dynamic>>.from(res as List));
+}
+
+Future<List<Map<String, dynamic>>?> _readSubjectsCache(String yearId) async {
+  final prefs = await SharedPreferences.getInstance();
+  final cachedRaw = prefs.getString(_homeSubjectsCacheKey(yearId));
+  if (cachedRaw == null || cachedRaw.trim().isEmpty) return null;
+  return _sortSubjects(
+    List<Map<String, dynamic>>.from(
+      (jsonDecode(cachedRaw) as List).cast<Map<String, dynamic>>(),
+    ),
+  );
+}
+
+Future<void> _writeSubjectsCache(
+  String yearId,
+  List<Map<String, dynamic>> data,
+) async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setString(_homeSubjectsCacheKey(yearId), jsonEncode(data));
+}
+
 final studentProfileProvider = FutureProvider<Map<String, dynamic>>((
   ref,
 ) async {
@@ -50,48 +96,13 @@ final subjectsByYearProvider =
       ref,
       yearId,
     ) async {
-      List<Map<String, dynamic>> sortSubjects(
-        List<Map<String, dynamic>> input,
-      ) {
-        final list = List<Map<String, dynamic>>.from(input);
-        list.sort((a, b) {
-          final ao = a['rotation_order'] as int?;
-          final bo = b['rotation_order'] as int?;
-          if (ao != null && bo != null) return ao.compareTo(bo);
-          if (ao != null) return -1;
-          if (bo != null) return 1;
-          final an = (a['name'] as String? ?? '').toLowerCase();
-          final bn = (b['name'] as String? ?? '').toLowerCase();
-          return an.compareTo(bn);
-        });
-        return list;
+      final cached = await _readSubjectsCache(yearId);
+      if (cached != null) {
+        return cached;
       }
 
-      Future<List<Map<String, dynamic>>> fetchRemote() async {
-        final res = await Supabase.instance.client
-            .from('subjects')
-            .select(
-              'id, name, description, rotation_order, location, needed_hours',
-            )
-            .eq('year_id', yearId)
-            .order('rotation_order')
-            .order('name');
-        return sortSubjects(List<Map<String, dynamic>>.from(res as List));
-      }
-
-      final prefs = await SharedPreferences.getInstance();
-      final cacheKey = 'home_subjects_year_$yearId';
-      final cachedRaw = prefs.getString(cacheKey);
-      if (cachedRaw != null) {
-        final cachedList = List<Map<String, dynamic>>.from(
-          (jsonDecode(cachedRaw) as List).cast<Map<String, dynamic>>(),
-        );
-
-        return sortSubjects(cachedList);
-      }
-
-      final fresh = await fetchRemote();
-      await prefs.setString(cacheKey, jsonEncode(fresh));
+      final fresh = await _fetchSubjectsRemote(yearId);
+      await _writeSubjectsCache(yearId, fresh);
       return fresh;
     });
 
@@ -426,6 +437,9 @@ class _SubjectsTabState extends ConsumerState<_SubjectsTab>
   }
 
   Future<void> _manualRefresh() async {
+    final fresh = await _fetchSubjectsRemote(widget.yearId);
+    await _writeSubjectsCache(widget.yearId, fresh);
+
     ref.invalidate(subjectsByYearProvider(widget.yearId));
     ref.invalidate(weeklyAttendanceSubjectIdsProvider(widget.yearId));
     if (widget.showLocation) {
