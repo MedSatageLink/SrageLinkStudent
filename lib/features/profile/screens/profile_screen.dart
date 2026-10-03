@@ -34,6 +34,9 @@ class StudentProfileScreen extends ConsumerWidget {
             ((p['categories'] as Map<String, dynamic>?)?['years']
                 as Map<String, dynamic>?)?['name'] ??
             '—';
+        final compensationAllowance =
+            (p['compensation_allowance'] as int?) ?? 8;
+        final compensationUsed = (p['compensation_used'] as int?) ?? 0;
         return WillPopScope(
           onWillPop: () async {
             context.go('/');
@@ -82,7 +85,7 @@ class StudentProfileScreen extends ConsumerWidget {
                 const Gap(24),
                 _InfoTile(
                   icon: Icons.badge_outlined,
-                  label: 'رقم الجامعة',
+                  label: 'الرقم الجامعي',
                   value: p['university_id'] as String? ?? '—',
                 ),
                 _InfoTile(
@@ -99,6 +102,11 @@ class StudentProfileScreen extends ConsumerWidget {
                   icon: Icons.format_list_numbered,
                   label: 'رقم الترتيب',
                   value: '${p['order_number'] ?? '—'}',
+                ),
+                _InfoTile(
+                  icon: Icons.assignment_turned_in_outlined,
+                  label: 'فرص التعويض (المسموحة/المستهلكة)',
+                  value: '$compensationAllowance / $compensationUsed',
                 ),
                 Container(
                   margin: const EdgeInsets.only(bottom: 10),
